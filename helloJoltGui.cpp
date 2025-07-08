@@ -227,8 +227,16 @@ static struct {
 		JPH::PhysicsSystem physics_system;
 		JPH::BodyID floor_id;
 		JPH::BodyID sphere_id;
+
 		JPH::TempAllocatorImpl* temp_allocator = nullptr;
 		JPH::JobSystemThreadPool* job_system = nullptr;
+
+        BPLayerInterfaceImpl* broad_phase_layer_interface = nullptr;
+        ObjectVsBroadPhaseLayerFilterImpl* object_vs_broadphase_layer_filter = nullptr;
+        ObjectLayerPairFilterImpl* object_vs_object_layer_filter = nullptr;
+
+        MyBodyActivationListener* body_activation_listener = nullptr;
+        MyContactListener* contact_listener = nullptr;
 	} physics;
 } state;
 
@@ -372,25 +380,24 @@ static void init(void) {
 
 		state.physics.temp_allocator = new JPH::TempAllocatorImpl(10*1024*1024);
 		state.physics.job_system = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
+//		state.physics.job_system = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, 1);
 
 		const JPH::uint cMaxBodies = 1024;
 		const JPH::uint cNumBodyMutexes = 0;
 		const JPH::uint cMaxBodyPairs = 1024;
 		const JPH::uint cMaxContactConstraints = 1024;
 
-		// BPLayerInterfaceImpl broad_phase_layer_interface;
-		//
-		// ObjectVsBroadPhaseLayerFilterImpl object_vs_broadphase_layer_filter;
-		//
-		// ObjectLayerPairFilterImpl object_vs_object_layer_filter;
+        state.physics.broad_phase_layer_interface = new BPLayerInterfaceImpl();
+        state.physics.object_vs_broadphase_layer_filter = new ObjectVsBroadPhaseLayerFilterImpl();
+        state.physics.object_vs_object_layer_filter = new ObjectLayerPairFilterImpl();
 
-		state.physics.physics_system.Init(cMaxBodies, cNumBodyMutexes, cMaxBodyPairs, cMaxContactConstraints, broad_phase_layer_interface, object_vs_broadphase_layer_filter, object_vs_object_layer_filter);
+		state.physics.physics_system.Init(cMaxBodies, cNumBodyMutexes, cMaxBodyPairs, cMaxContactConstraints, *state.physics.broad_phase_layer_interface, *state.physics.object_vs_broadphase_layer_filter, *state.physics.object_vs_object_layer_filter);
 
-		MyBodyActivationListener body_activation_listener;
-		state.physics.physics_system.SetBodyActivationListener(&body_activation_listener);
+        state.physics.body_activation_listener = new MyBodyActivationListener();
+		state.physics.physics_system.SetBodyActivationListener(state.physics.body_activation_listener);
 
-		MyContactListener contact_listener;
-		state.physics.physics_system.SetContactListener(&contact_listener);
+        state.physics.contact_listener = new MyContactListener();
+		state.physics.physics_system.SetContactListener(state.physics.contact_listener);
 
 		JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
 
@@ -424,9 +431,14 @@ static void cleanup(void) {
 		body_interface.DestroyBody(state.physics.floor_id);
 
 		delete state.physics.temp_allocator;
-		state.physics.temp_allocator = nullptr;
 		delete state.physics.job_system;
-		state.physics.job_system = nullptr;
+
+        delete state.physics.broad_phase_layer_interface;
+        delete state.physics.object_vs_broadphase_layer_filter;
+        delete state.physics.object_vs_object_layer_filter;
+
+        delete state.physics.body_activation_listener;
+        delete state.physics.contact_listener;
 
 		JPH::UnregisterTypes();
 
@@ -454,8 +466,8 @@ static void frame(void) {
 
 		const int cCollisionSteps = 1;
 
-		// state.physics.physics_system.Update((float)sapp_frame_duration(), cCollisionSteps, state.physics.temp_allocator, state.physics.job_system);
-		state.physics.physics_system.Update(cDeltaTime, cCollisionSteps, state.physics.temp_allocator, state.physics.job_system);
+		 state.physics.physics_system.Update((float)sapp_frame_duration(), cCollisionSteps, state.physics.temp_allocator, state.physics.job_system);
+//		state.physics.physics_system.Update(cDeltaTime, cCollisionSteps, state.physics.temp_allocator, state.physics.job_system);
 	}
 
     const int fb_width = sapp_width();
