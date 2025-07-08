@@ -201,15 +201,6 @@ typedef struct {
     sshape_element_range_t draw;
 } shape_t;
 
-enum {
-    BOX = 0,
-    PLANE,
-    SPHERE,
-    CYLINDER,
-    TORUS,
-    NUM_SHAPES
-};
-
 static struct {
     struct {
         sg_pass_action pass_action;
@@ -217,7 +208,6 @@ static struct {
         sg_pipeline pip_lines;
         sg_buffer vbuf;
         sg_buffer ibuf;
-        shape_t shapes[NUM_SHAPES];
         shapes_vs_params_t vs_params;
         bool line_mode;
         float rx, ry;
@@ -227,6 +217,9 @@ static struct {
 		JPH::PhysicsSystem physics_system;
 		JPH::BodyID floor_id;
 		JPH::BodyID sphere_id;
+
+        JPH::Vec3 floor_xyz = JPH::Vec3(10.0f, 0.2f, 10.0f);
+        float sphere_radius = 0.5f;
 
 		JPH::TempAllocatorImpl* temp_allocator = nullptr;
 		JPH::JobSystemThreadPool* job_system = nullptr;
@@ -239,6 +232,134 @@ static struct {
         MyContactListener* contact_listener = nullptr;
 	} physics;
 } state;
+
+HMM_Mat4 jolt_mat4_to_hmm_mat4(JPH::Mat44 in) {
+    HMM_Mat4 result;
+
+    for (int i = 0; i < 4; i++) {
+        JPH::Vec4 v = in.GetColumn4(i);
+        result.Columns[i] = HMM_V4(v.mF32[0], v.mF32[1], v.mF32[2], v.mF32[3]);
+    }
+
+    return result;
+}
+
+static void draw_jolt_box(JPH::BodyID box_id, JPH::Vec3 box_xyz) {
+    JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
+
+    JPH::Mat44 world = body_interface.GetWorldTransform(box_id);
+
+    HMM_Mat4 proj = state.graphics.camera.proj;
+    HMM_Mat4 view = state.graphics.camera.view;
+    HMM_Mat4 view_proj = HMM_MulM4(proj, view);
+
+    HMM_Mat4 model = jolt_mat4_to_hmm_mat4(world);
+
+    sshape_vertex_t vertices[6 * 1024];
+    uint16_t indices[16 * 1024];
+
+    sshape_buffer_t buf = {};
+    buf.vertices.buffer = SSHAPE_RANGE(vertices);
+    buf.indices.buffer  = SSHAPE_RANGE(indices);
+
+    sshape_box_t _sshape_box_t{};
+    _sshape_box_t.width  = box_xyz.mF32[0];
+    _sshape_box_t.height = box_xyz.mF32[1];
+    _sshape_box_t.depth  = box_xyz.mF32[2];
+    _sshape_box_t.tiles  = 20;
+    _sshape_box_t.random_colors = true;
+    buf = sshape_build_box(&buf, &_sshape_box_t);
+    sshape_element_range_t draw = sshape_element_range(&buf);
+
+    const sg_buffer_desc vbuf_desc = sshape_vertex_buffer_desc(&buf);
+    const sg_buffer_desc ibuf_desc = sshape_index_buffer_desc(&buf);
+    state.graphics.vbuf = sg_make_buffer(&vbuf_desc);
+    state.graphics.ibuf = sg_make_buffer(&ibuf_desc);
+
+    sg_bindings _sg_bindings{};
+    _sg_bindings.vertex_buffers[0] = state.graphics.vbuf;
+    _sg_bindings.index_buffer = state.graphics.ibuf;
+    sg_apply_bindings(_sg_bindings);
+    state.graphics.vs_params.mvp = HMM_MulM4(view_proj, model);
+    sg_apply_uniforms(UB_shapes_vs_params, SG_RANGE(state.graphics.vs_params));
+    sg_draw(draw.base_element, draw.num_elements, 1);
+
+    sg_destroy_buffer(state.graphics.vbuf);
+    sg_destroy_buffer(state.graphics.ibuf);
+}
+
+static void draw_jolt_sphere(JPH::BodyID sphere_id, float radius) {
+    JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
+
+    JPH::Mat44 world = body_interface.GetWorldTransform(sphere_id);
+
+    HMM_Mat4 proj = state.graphics.camera.proj;
+    HMM_Mat4 view = state.graphics.camera.view;
+    HMM_Mat4 view_proj = HMM_MulM4(proj, view);
+
+    HMM_Mat4 model = jolt_mat4_to_hmm_mat4(world);
+
+    sshape_vertex_t vertices[6 * 1024];
+    uint16_t indices[16 * 1024];
+
+    sshape_buffer_t buf = {};
+    buf.vertices.buffer = SSHAPE_RANGE(vertices);
+    buf.indices.buffer  = SSHAPE_RANGE(indices);
+
+    sshape_sphere_t _sshape_sphere_t{};
+    _sshape_sphere_t.radius = radius;
+    _sshape_sphere_t.slices = 36;
+    _sshape_sphere_t.stacks = 20;
+    _sshape_sphere_t.random_colors = true;
+    buf = sshape_build_sphere(&buf, &_sshape_sphere_t);
+    sshape_element_range_t draw = sshape_element_range(&buf);
+
+    const sg_buffer_desc vbuf_desc = sshape_vertex_buffer_desc(&buf);
+    const sg_buffer_desc ibuf_desc = sshape_index_buffer_desc(&buf);
+    state.graphics.vbuf = sg_make_buffer(&vbuf_desc);
+    state.graphics.ibuf = sg_make_buffer(&ibuf_desc);
+
+    sg_bindings _sg_bindings{};
+    _sg_bindings.vertex_buffers[0] = state.graphics.vbuf;
+    _sg_bindings.index_buffer = state.graphics.ibuf;
+    sg_apply_bindings(_sg_bindings);
+    state.graphics.vs_params.mvp = HMM_MulM4(view_proj, model);
+    sg_apply_uniforms(UB_shapes_vs_params, SG_RANGE(state.graphics.vs_params));
+    sg_draw(draw.base_element, draw.num_elements, 1);
+
+    sg_destroy_buffer(state.graphics.vbuf);
+    sg_destroy_buffer(state.graphics.ibuf);
+}
+
+static void create_physics_scene() {
+    using namespace JPH::literals;
+
+    JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
+
+    JPH::BoxShapeSettings floor_shape_settings(state.physics.floor_xyz);
+    floor_shape_settings.SetEmbedded();
+
+    JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
+    JPH::ShapeRefC floor_shape = floor_shape_result.Get();
+
+    JPH::BodyCreationSettings floor_settings(floor_shape, JPH::RVec3(0.0_r, -1.0_r, 0.0_r), JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::NON_MOVING);
+    state.physics.floor_id = body_interface.CreateAndAddBody(floor_settings, JPH::EActivation::DontActivate);
+
+    JPH::BodyCreationSettings sphere_settings(new JPH::SphereShape(state.physics.sphere_radius), JPH::RVec3(0.0_r, 5.0_r, 0.0_r), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
+    state.physics.sphere_id = body_interface.CreateAndAddBody(sphere_settings, JPH::EActivation::Activate);
+
+    body_interface.SetLinearVelocity(state.physics.sphere_id, JPH::Vec3(0.0_r, -5.0_r, 0.0_r));
+}
+
+static void clear_physics_scene() {
+    JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
+
+    body_interface.RemoveBody(state.physics.sphere_id);
+    body_interface.DestroyBody(state.physics.sphere_id);
+
+    body_interface.RemoveBody(state.physics.floor_id);
+    body_interface.DestroyBody(state.physics.floor_id);
+}
 
 static void init(void) {
 	// graphics init
@@ -283,7 +404,6 @@ static void init(void) {
 	    _fill_pipeline_desc.label = "fill-pipeline";
 	    state.graphics.pip_fill = sg_make_pipeline(&_fill_pipeline_desc);
 
-
 	    sg_pipeline_desc _line_pipeline_desc = {};
 	    _line_pipeline_desc.shader = sg_make_shader(shapes_shader_desc(sg_query_backend()));
 	    _line_pipeline_desc.layout.buffers[0] = sshape_vertex_buffer_layout_state();
@@ -298,77 +418,10 @@ static void init(void) {
 	    _line_pipeline_desc.depth.write_enabled = true;
 	    _line_pipeline_desc.label = "lines-pipeline";
 	    state.graphics.pip_lines = sg_make_pipeline(&_line_pipeline_desc);
-
-	    // shape positions
-	    state.graphics.shapes[BOX].pos = HMM_V3(-1.0f, 1.0f, 0.0f);
-	    state.graphics.shapes[PLANE].pos = HMM_V3(1.0f, 1.0f, 0.0f);
-	    state.graphics.shapes[SPHERE].pos = HMM_V3(-2.0f, -1.0f, 0.0f);
-	    state.graphics.shapes[CYLINDER].pos = HMM_V3(2.0f, -1.0f, 0.0f);
-	    state.graphics.shapes[TORUS].pos = HMM_V3(0.0f, -1.0f, 0.0f);
-
-	    // generate shape geometries
-	    sshape_vertex_t vertices[6 * 1024];
-	    uint16_t indices[16 * 1024];
-	    sshape_buffer_t buf = {};
-	    buf.vertices.buffer = SSHAPE_RANGE(vertices);
-	    buf.indices.buffer  = SSHAPE_RANGE(indices);
-
-	    sshape_box_t _sshape_box_t{};
-	    _sshape_box_t.width  = 1.0f;
-	    _sshape_box_t.height = 1.0f;
-	    _sshape_box_t.depth  = 1.0f;
-	    _sshape_box_t.tiles  = 10;
-	    _sshape_box_t.random_colors = true;
-	    buf = sshape_build_box(&buf, &_sshape_box_t);
-	    state.graphics.shapes[BOX].draw = sshape_element_range(&buf);
-
-	    sshape_plane_t _sshape_plane_t{};
-	    _sshape_plane_t.width = 1.0f;
-	    _sshape_plane_t.depth = 1.0f;
-	    _sshape_plane_t.tiles = 10;
-	    _sshape_plane_t.random_colors = true;
-	    buf = sshape_build_plane(&buf, &_sshape_plane_t);
-	    state.graphics.shapes[PLANE].draw = sshape_element_range(&buf);
-
-	    sshape_sphere_t _sshape_sphere_t{};
-	    _sshape_sphere_t.radius = 0.75f;
-	    _sshape_sphere_t.slices = 36;
-	    _sshape_sphere_t.stacks = 20;
-	    _sshape_sphere_t.random_colors = true;
-	    buf = sshape_build_sphere(&buf, &_sshape_sphere_t);
-	    state.graphics.shapes[SPHERE].draw = sshape_element_range(&buf);
-
-	    sshape_cylinder_t _sshape_cylinder_t{};
-	    _sshape_cylinder_t.radius = 0.5f;
-	    _sshape_cylinder_t.height = 1.5f;
-	    _sshape_cylinder_t.slices = 36;
-	    _sshape_cylinder_t.stacks = 10;
-	    _sshape_cylinder_t.random_colors = true;
-	    buf = sshape_build_cylinder(&buf, &_sshape_cylinder_t);
-	    state.graphics.shapes[CYLINDER].draw = sshape_element_range(&buf);
-
-	    sshape_torus_t _sshape_torus_t{};
-	    _sshape_torus_t.radius = 0.5f;
-	    _sshape_torus_t.ring_radius = 0.3f;
-	    _sshape_torus_t.rings = 36;
-	    _sshape_torus_t.sides = 18;
-	    _sshape_torus_t.random_colors = true;
-	    buf = sshape_build_torus(&buf, &_sshape_torus_t);
-	    state.graphics.shapes[TORUS].draw = sshape_element_range(&buf);
-
-	    assert(buf.valid);
-
-	    // one vertex/index-buffer-pair for all shapes
-	    const sg_buffer_desc vbuf_desc = sshape_vertex_buffer_desc(&buf);
-	    const sg_buffer_desc ibuf_desc = sshape_index_buffer_desc(&buf);
-	    state.graphics.vbuf = sg_make_buffer(&vbuf_desc);
-	    state.graphics.ibuf = sg_make_buffer(&ibuf_desc);
 	}
 
 	// physics init
 	{
-		using namespace JPH::literals;
-
 		JPH::RegisterDefaultAllocator();
 
 		JPH::Trace = TraceImpl;
@@ -380,7 +433,6 @@ static void init(void) {
 
 		state.physics.temp_allocator = new JPH::TempAllocatorImpl(10*1024*1024);
 		state.physics.job_system = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
-//		state.physics.job_system = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, 1);
 
 		const JPH::uint cMaxBodies = 1024;
 		const JPH::uint cNumBodyMutexes = 0;
@@ -398,37 +450,16 @@ static void init(void) {
 
         state.physics.contact_listener = new MyContactListener();
 		state.physics.physics_system.SetContactListener(state.physics.contact_listener);
+        state.physics.physics_system.OptimizeBroadPhase();
 
-		JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
-
-		JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(300.0f, 1.0f, 100.0f));
-		floor_shape_settings.SetEmbedded();
-
-		JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
-		JPH::ShapeRefC floor_shape = floor_shape_result.Get();
-
-		JPH::BodyCreationSettings floor_settings(floor_shape, JPH::RVec3(0.0_r, -1.0_r, 0.0_r), JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::NON_MOVING);
-		state.physics.floor_id = body_interface.CreateAndAddBody(floor_settings, JPH::EActivation::DontActivate);
-
-		JPH::BodyCreationSettings sphere_settings(new JPH::SphereShape(0.5f), JPH::RVec3(0.0_r, 2.0_r, 0.0_r), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
-		state.physics.sphere_id = body_interface.CreateAndAddBody(sphere_settings, JPH::EActivation::Activate);
-
-		body_interface.SetLinearVelocity(state.physics.sphere_id, JPH::Vec3(0.0_r, -5.0_r, 0.0_r));
-
-		state.physics.physics_system.OptimizeBroadPhase();
+        create_physics_scene();
 	}
 }
 
 static void cleanup(void) {
 	// physics deinit
 	{
-		JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
-
-		body_interface.RemoveBody(state.physics.sphere_id);
-		body_interface.DestroyBody(state.physics.sphere_id);
-
-		body_interface.RemoveBody(state.physics.floor_id);
-		body_interface.DestroyBody(state.physics.floor_id);
+        clear_physics_scene();
 
 		delete state.physics.temp_allocator;
 		delete state.physics.job_system;
@@ -453,22 +484,9 @@ static void cleanup(void) {
 	}
 }
 
-static JPH::uint step = 0;
-const float cDeltaTime = 1.0f / 60.0f;
 static void frame(void) {
-	JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
-	if (body_interface.IsActive(state.physics.sphere_id)) {
-		++step;
-
-		JPH::RVec3 position = body_interface.GetCenterOfMassPosition(state.physics.sphere_id);
-		JPH::Vec3 velocity = body_interface.GetLinearVelocity(state.physics.sphere_id);
-		std::cout << "Step " << step << ": Position = (" << position.GetX() << ", " << position.GetY() << ", " << position.GetZ() << "), Velocity = (" << velocity.GetX() << ", " << velocity.GetY() << ", " << velocity.GetZ() << ")" << std::endl;
-
-		const int cCollisionSteps = 1;
-
-		 state.physics.physics_system.Update((float)sapp_frame_duration(), cCollisionSteps, state.physics.temp_allocator, state.physics.job_system);
-//		state.physics.physics_system.Update(cDeltaTime, cCollisionSteps, state.physics.temp_allocator, state.physics.job_system);
-	}
+    const int cCollisionSteps = 2;
+    state.physics.physics_system.Update((float)sapp_frame_duration(), cCollisionSteps, state.physics.temp_allocator, state.physics.job_system);
 
     const int fb_width = sapp_width();
     const int fb_height = sapp_height();
@@ -481,7 +499,8 @@ static void frame(void) {
               "  1: vertex normals\n"
               "  2: texture coords\n"
               "  3: vertex color\n"
-              "  4: line/fill mode\n");
+              "  4: line/fill mode\n"
+              "  R: reset physics\n");
 
     // view-projection matrix...
     HMM_Mat4 proj = state.graphics.camera.proj;
@@ -503,17 +522,10 @@ static void frame(void) {
     } else {
         sg_apply_pipeline(state.graphics.pip_fill);
     }
-    sg_bindings _sg_bindings{};
-    _sg_bindings.vertex_buffers[0] = state.graphics.vbuf;
-    _sg_bindings.index_buffer = state.graphics.ibuf;
-    sg_apply_bindings(_sg_bindings);
-    for (int i = 0; i < NUM_SHAPES; i++) {
-        // per shape model-view-projection matrix
-        HMM_Mat4 model = HMM_MulM4(HMM_Translate(state.graphics.shapes[i].pos), rm);
-        state.graphics.vs_params.mvp = HMM_MulM4(view_proj, model);
-        sg_apply_uniforms(UB_shapes_vs_params, SG_RANGE(state.graphics.vs_params));
-        sg_draw(state.graphics.shapes[i].draw.base_element, state.graphics.shapes[i].draw.num_elements, 1);
-    }
+
+    draw_jolt_box(state.physics.floor_id, state.physics.floor_xyz);
+    draw_jolt_sphere(state.physics.sphere_id, state.physics.sphere_radius);
+
     sdtx_draw();
     sg_end_pass();
     sg_commit();
@@ -526,6 +538,7 @@ static void input(const sapp_event* ev) {
             case SAPP_KEYCODE_2: state.graphics.vs_params.draw_mode = 1.0f; break;
             case SAPP_KEYCODE_3: state.graphics.vs_params.draw_mode = 2.0f; break;
             case SAPP_KEYCODE_4: state.graphics.line_mode = !state.graphics.line_mode; break;
+            case SAPP_KEYCODE_R: clear_physics_scene(); create_physics_scene(); break;
             default: break;
         }
     }
