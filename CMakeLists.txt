@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 project(NVRHI_Example)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(3rd_party)
@@ -35,3 +35,6 @@ target_link_libraries(HelloJoltCli PRIVATE Jolt::Jolt)
 
 add_executable(helloSokolShapes helloSokolShapes.c)
 target_link_libraries(helloSokolShapes PRIVATE sokol hmm)
+
+add_executable(HelloJoltGui helloJoltGui.cpp)
+target_link_libraries(HelloJoltGui PRIVATE Jolt::Jolt sokol hmm)

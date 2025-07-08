@@ -143,6 +143,7 @@ static void cam_update(camera2_t* cam, int fb_width, int fb_height) {
 static void cam_handle_event(camera2_t* cam, const sapp_event* ev) {
     assert(cam);
     const float camera_speed = 0.1f;
+    const float dt = sapp_frame_duration();
     switch (ev->type) {
         case SAPP_EVENTTYPE_MOUSE_DOWN:
             if (ev->mouse_button == SAPP_MOUSEBUTTON_LEFT) {
@@ -163,7 +164,6 @@ static void cam_handle_event(camera2_t* cam, const sapp_event* ev) {
             }
             break;
         case SAPP_EVENTTYPE_KEY_DOWN:
-            float dt = sapp_frame_duration();
             if (ev->key_code == SAPP_KEYCODE_W) {
                 cam_keyboard(cam, FORWARD, dt);
             }
