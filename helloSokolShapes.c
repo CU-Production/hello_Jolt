@@ -11,7 +11,8 @@
 #include "util/sokol_shape.h"
 #include "util/sokol_debugtext.h"
 #include "HandmadeMath.h"
-#include "util/camera.h"
+// #include "util/camera.h"
+#include "util/camera2.h"
 #include "shaders/shapes.glsl.h"
 
 typedef struct {
@@ -38,7 +39,7 @@ static struct {
     shapes_vs_params_t vs_params;
     bool line_mode;
     float rx, ry;
-    camera_t camera;
+    camera2_t camera;
 } state;
 
 static void init(void) {
@@ -59,14 +60,13 @@ static void init(void) {
     };
 
     // initialize camera helper
-    camera_desc_t camdesc = {0};
-    camdesc.min_dist = 1.0f;
-    camdesc.max_dist = 100.0f;
-    camdesc.center.Y = 1.0f;
-    camdesc.distance = 6.0f;
-    camdesc.latitude = 10.0f;
-    camdesc.longitude = 20.0f;
-    camdesc.aspect = 70.0f * HMM_DegToRad;
+    camera2_desc_t camdesc = {0};
+    camdesc.nearz = 0.1f;
+    camdesc.farz = 100.0f;
+    camdesc.pos = HMM_V3(0.0f, 1.5f, 6.0f);
+    camdesc.up = HMM_V3(0.0f, 1.0f, 0.0f);
+    camdesc.yaw = -90.0f;
+    camdesc.pitch = 0.0f;
     cam_init(&state.camera, &camdesc);
 
     // shader and pipeline object
