@@ -502,19 +502,6 @@ static void frame(void) {
               "  4: line/fill mode\n"
               "  R: reset physics\n");
 
-    // view-projection matrix...
-    HMM_Mat4 proj = state.graphics.camera.proj;
-    HMM_Mat4 view = state.graphics.camera.view;
-    HMM_Mat4 view_proj = HMM_MulM4(proj, view);
-
-    // model-rotation matrix
-    const float t = (float)(sapp_frame_duration() * 60.0);
-    state.graphics.rx += 1.0f * t * HMM_DegToRad;
-    state.graphics.ry += 2.0f * t * HMM_DegToRad;
-    HMM_Mat4 rxm = HMM_Rotate_RH(state.graphics.rx, HMM_V3(1.0f, 0.0f, 0.0f));
-    HMM_Mat4 rym = HMM_Rotate_RH(state.graphics.ry, HMM_V3(0.0f, 1.0f, 0.0f));
-    HMM_Mat4 rm = HMM_MulM4(rxm, rym);
-
     // render shapes...
     sg_begin_pass({ .action = state.graphics.pass_action, .swapchain = sglue_swapchain() });
     if (state.graphics.line_mode) {
