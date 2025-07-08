@@ -13,7 +13,7 @@ enum Camera_Movement {
 // Default camera values
 const float YAW         = -90.0f;
 const float PITCH       =  0.0f;
-const float SPEED       =  5.0f;
+const float SPEED       =  10.0f;
 const float SENSITIVITY =  0.1f;
 const float ZOOM        =  45.0f;
 
@@ -155,11 +155,11 @@ static void cam_handle_event(camera2_t* cam, const sapp_event* ev) {
             }
             break;
         case SAPP_EVENTTYPE_MOUSE_SCROLL:
-            cam_mouse_scroll(cam, ev->scroll_y * 0.5f);
+            cam_mouse_scroll(cam, ev->scroll_y);
             break;
         case SAPP_EVENTTYPE_MOUSE_MOVE:
             if (sapp_mouse_locked()) {
-                cam_mouse_movement(cam, ev->mouse_dx * 0.25f, ev->mouse_dy * 0.25f, true);
+                cam_mouse_movement(cam, ev->mouse_dx, ev->mouse_dy, true);
             }
             break;
         case SAPP_EVENTTYPE_KEY_DOWN:
