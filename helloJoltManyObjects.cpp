@@ -292,7 +292,7 @@ static struct {
 	struct {
 		JPH::PhysicsSystem physics_system;
 
-		BoxDrawable floor = BoxDrawable(JPH::Vec3(100.0f, 0.2f, 100.0f));
+		BoxDrawable floor = BoxDrawable(JPH::Vec3(200.0f, 0.2f, 200.0f));
 		SphereDrawable spheres[100];
 		BoxDrawable boxes[100];
 
@@ -431,7 +431,8 @@ static void create_physics_scene() {
 
 	// floor
     {
-    	JPH::BoxShapeSettings floor_shape_settings(state.physics.floor.extents);
+    	JPH::Vec3 half_extents = state.physics.floor.extents * 0.5f;
+    	JPH::BoxShapeSettings floor_shape_settings(half_extents);
     	floor_shape_settings.SetEmbedded();
 
     	JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
@@ -447,10 +448,8 @@ static void create_physics_scene() {
     	JPH::Ref<JPH::SphereShape> sphere_shape = new JPH::SphereShape(tmp_radius);
 	    for (int i = 0; i < 100; i++) {
 	    	state.physics.spheres[i].radius = tmp_radius;
-	    	float posx = 0;
-	    	float posy = 0;
-	    	// float posx = random_float();
-	    	// float posy = random_float();
+	    	float posx = random_float();
+	    	float posy = random_float() - 12.0f;
 	    	JPH::BodyCreationSettings sphere_settings(sphere_shape, JPH::RVec3(posx, (5.0 + 5.0*i), posy), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
 	    	state.physics.spheres[i].id = body_interface.CreateAndAddBody(sphere_settings, JPH::EActivation::Activate);
 	    }
@@ -469,10 +468,8 @@ static void create_physics_scene() {
 
     	for (int i = 0; i < 100; i++) {
     		state.physics.boxes[i].extents = extents;
-    		float posx = 0;
-    		float posy = 0;
-    		// float posx = random_float();
-    		// float posy = random_float();
+    		float posx = random_float();
+    		float posy = random_float() - 12.0f;
     		JPH::BodyCreationSettings box_settings(box_shape, JPH::RVec3(posx, (2.5 + 5.0*i), posy), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
     		state.physics.boxes[i].id = body_interface.CreateAndAddBody(box_settings, JPH::EActivation::Activate);
     	}
@@ -517,8 +514,8 @@ static void init(void) {
 	    // initialize camera helper
 	    camera2_desc_t camdesc = {0};
 	    camdesc.nearz = 0.1f;
-	    camdesc.farz = 100.0f;
-	    camdesc.pos = HMM_V3(0.0f, 1.5f, 6.0f);
+	    camdesc.farz = 1000.0f;
+	    camdesc.pos = HMM_V3(0.0f, 5.5f, 6.0f);
 	    camdesc.up = HMM_V3(0.0f, 1.0f, 0.0f);
 	    camdesc.yaw = -90.0f;
 	    camdesc.pitch = 0.0f;
@@ -620,9 +617,31 @@ static void cleanup(void) {
 }
 
 static void frame(void) {
+	// physics update
     const int cCollisionSteps = 2;
     state.physics.physics_system.Update((float)sapp_frame_duration(), cCollisionSteps, state.physics.temp_allocator, state.physics.job_system);
 
+	JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
+	for (int i = 0; i < 100; i++) {
+		if (state.physics.spheres[i].id.IsInvalid()) continue;
+		JPH::RVec3 position = body_interface.GetCenterOfMassPosition(state.physics.spheres[i].id);
+		if (position.GetY() < -10.0f) {
+			body_interface.RemoveBody(state.physics.spheres[i].id);
+			body_interface.DestroyBody(state.physics.spheres[i].id);
+			state.physics.spheres[i].id = JPH::BodyID();
+		}
+	}
+	for (int i = 0; i < 100; i++) {
+		if (state.physics.boxes[i].id.IsInvalid()) continue;
+		JPH::RVec3 position = body_interface.GetCenterOfMassPosition(state.physics.boxes[i].id);
+		if (position.GetY() < -10.0f) {
+			body_interface.RemoveBody(state.physics.boxes[i].id);
+			body_interface.DestroyBody(state.physics.boxes[i].id);
+			state.physics.boxes[i].id = JPH::BodyID();
+		}
+	}
+
+	// graphics update
     const int fb_width = sapp_width();
     const int fb_height = sapp_height();
     cam_update(&state.graphics.camera, fb_width, fb_height);
