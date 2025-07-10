@@ -587,6 +587,7 @@ static void create_physics_scene() {
     }
 
 	// spheres
+	if (false)
     {
     	float tmp_radius = 0.5f;
     	JPH::Ref<JPH::SphereShape> sphere_shape = new JPH::SphereShape(tmp_radius);
@@ -607,6 +608,7 @@ static void create_physics_scene() {
     }
 
 	// boxes
+	if (false)
 	{
     	JPH::Vec3 extents = JPH::Vec3(1.0f, 1.0f, 1.0f);
     	JPH::Vec3 half_extents = extents * 0.5f;
@@ -630,6 +632,37 @@ static void create_physics_scene() {
     		uint32_t random_vertex_color = random_r | random_g << 8 | random_b << 16;
 
     		state.physics.boxes[i].color = random_vertex_color;
+    	}
+	}
+
+	// box pyramid
+	// if (false)
+	{
+    	JPH::Vec3 extents = JPH::Vec3(1.0f, 1.0f, 1.0f);
+    	JPH::Vec3 half_extents = extents * 0.5f;
+
+    	JPH::BoxShapeSettings box_shape_settings(half_extents);
+    	box_shape_settings.SetEmbedded();
+
+    	JPH::ShapeSettings::ShapeResult box_shape_result = box_shape_settings.Create();
+    	JPH::ShapeRefC box_shape = box_shape_result.Get();
+
+        const float posz = 12.0f;
+    	for (int i = 0; i < 10; i++) {
+    		for (int j = 0; j < (10 - i); j++) {
+    			const int id = i * 10 + j;
+
+    			state.physics.boxes[id].extents = extents;
+    			JPH::BodyCreationSettings box_settings(box_shape, JPH::RVec3(j - 5.0 + i * 0.5, (0.5 + i), posz), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
+    			state.physics.boxes[id].id = body_interface.CreateAndAddBody(box_settings, JPH::EActivation::Activate);
+
+    			uint8_t random_r = static_cast<uint8_t>(random_float() * 255.0f);
+    			uint8_t random_g = static_cast<uint8_t>(random_float() * 255.0f);
+    			uint8_t random_b = static_cast<uint8_t>(random_float() * 255.0f);
+    			uint32_t random_vertex_color = random_r | random_g << 8 | random_b << 16;
+
+    			state.physics.boxes[id].color = random_vertex_color;
+    		}
     	}
 	}
 
