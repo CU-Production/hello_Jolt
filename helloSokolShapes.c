@@ -181,10 +181,11 @@ static void frame(void) {
     sdtx_canvas(fb_width*0.5f, fb_height*0.5f);
     sdtx_pos(0.5f, 0.5f);
     sdtx_puts("press key to switch draw mode:\n\n"
-              "  1: vertex normals\n"
-              "  2: texture coords\n"
-              "  3: vertex color\n"
-              "  4: line/fill mode\n");
+              "  1: basic lighting\n"
+              "  2: vertex normals\n"
+              "  3: texture coords\n"
+              "  4: vertex color\n"
+              "  5: line/fill mode\n");
 
     // view-projection matrix...
     // HMM_Mat4 proj = HMM_Perspective_RH_ZO(60.0f * HMM_DegToRad, sapp_widthf()/sapp_heightf(), 0.01f, 10.0f);
@@ -216,7 +217,8 @@ static void frame(void) {
     for (int i = 0; i < NUM_SHAPES; i++) {
         // per shape model-view-projection matrix
         HMM_Mat4 model = HMM_MulM4(HMM_Translate(state.shapes[i].pos), rm);
-        state.vs_params.mvp = HMM_MulM4(view_proj, model);
+        state.vs_params.m = model;
+        state.vs_params.vp = view_proj;
         sg_apply_uniforms(UB_shapes_vs_params, &SG_RANGE(state.vs_params));
         sg_draw(state.shapes[i].draw.base_element, state.shapes[i].draw.num_elements, 1);
     }
@@ -231,7 +233,8 @@ static void input(const sapp_event* ev) {
             case SAPP_KEYCODE_1: state.vs_params.draw_mode = 0.0f; break;
             case SAPP_KEYCODE_2: state.vs_params.draw_mode = 1.0f; break;
             case SAPP_KEYCODE_3: state.vs_params.draw_mode = 2.0f; break;
-            case SAPP_KEYCODE_4: state.line_mode = !state.line_mode; break;
+            case SAPP_KEYCODE_4: state.vs_params.draw_mode = 3.0f; break;
+            case SAPP_KEYCODE_5: state.line_mode = !state.line_mode; break;
             default: break;
         }
     }

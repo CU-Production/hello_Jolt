@@ -280,7 +280,8 @@ static void draw_jolt_box(JPH::BodyID box_id, JPH::Vec3 box_xyz) {
     _sg_bindings.vertex_buffers[0] = state.graphics.vbuf;
     _sg_bindings.index_buffer = state.graphics.ibuf;
     sg_apply_bindings(_sg_bindings);
-    state.graphics.vs_params.mvp = HMM_MulM4(view_proj, model);
+    state.graphics.vs_params.m = model;
+    state.graphics.vs_params.vp = view_proj;
     sg_apply_uniforms(UB_shapes_vs_params, SG_RANGE(state.graphics.vs_params));
     sg_draw(draw.base_element, draw.num_elements, 1);
 
@@ -323,7 +324,8 @@ static void draw_jolt_sphere(JPH::BodyID sphere_id, float radius) {
     _sg_bindings.vertex_buffers[0] = state.graphics.vbuf;
     _sg_bindings.index_buffer = state.graphics.ibuf;
     sg_apply_bindings(_sg_bindings);
-    state.graphics.vs_params.mvp = HMM_MulM4(view_proj, model);
+    state.graphics.vs_params.m = model;
+    state.graphics.vs_params.vp = view_proj;
     sg_apply_uniforms(UB_shapes_vs_params, SG_RANGE(state.graphics.vs_params));
     sg_draw(draw.base_element, draw.num_elements, 1);
 
@@ -496,10 +498,11 @@ static void frame(void) {
     sdtx_canvas(fb_width*0.5f, fb_height*0.5f);
     sdtx_pos(0.5f, 0.5f);
     sdtx_puts("press key to switch draw mode:\n\n"
-              "  1: vertex normals\n"
-              "  2: texture coords\n"
-              "  3: vertex color\n"
-              "  4: line/fill mode\n"
+              "  1: basic lighting\n"
+              "  2: vertex normals\n"
+              "  3: texture coords\n"
+              "  4: vertex color\n"
+              "  5: line/fill mode\n"
               "  R: reset physics\n");
 
     // render shapes...
@@ -524,7 +527,8 @@ static void input(const sapp_event* ev) {
             case SAPP_KEYCODE_1: state.graphics.vs_params.draw_mode = 0.0f; break;
             case SAPP_KEYCODE_2: state.graphics.vs_params.draw_mode = 1.0f; break;
             case SAPP_KEYCODE_3: state.graphics.vs_params.draw_mode = 2.0f; break;
-            case SAPP_KEYCODE_4: state.graphics.line_mode = !state.graphics.line_mode; break;
+            case SAPP_KEYCODE_4: state.graphics.vs_params.draw_mode = 3.0f; break;
+            case SAPP_KEYCODE_5: state.graphics.line_mode = !state.graphics.line_mode; break;
             case SAPP_KEYCODE_R: clear_physics_scene(); create_physics_scene(); break;
             default: break;
         }
