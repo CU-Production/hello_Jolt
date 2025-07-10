@@ -299,6 +299,7 @@ static struct {
 			JPH::Ref<JPH::VehicleCollisionTester> mTesters[3];
 			JPH::Body*                            mCarBody;
 			JPH::Ref<JPH::VehicleConstraint>      mVehicleConstraint;
+			JPH::Vec3                             mExtents;
 		} vehicle;
 		BoxDrawable floor = BoxDrawable(JPH::Vec3(200.0f, 0.2f, 200.0f));
 		SphereDrawable spheres[100];
@@ -432,6 +433,68 @@ static void draw_jolt_object(const Drawable& drawable) {
 	sg_destroy_buffer(state.graphics.ibuf);
 }
 
+static void draw_jolt_vehicle() {
+	if (!state.physics.vehicle.mCarBody) return;
+
+	// draw CarBody
+	{
+		BoxDrawable main_car_body{};
+		main_car_body.extents = state.physics.vehicle.mExtents;
+		main_car_body.id = state.physics.vehicle.mCarBody->GetID();
+
+		draw_jolt_object(main_car_body);
+	}
+
+
+	// draw Wheels
+	if (!state.physics.vehicle.mVehicleConstraint) return;
+
+	for (JPH::uint w = 0; w < 4; ++w)
+	{
+		const JPH::WheelSettings *settings = state.physics.vehicle.mVehicleConstraint->GetWheels()[w]->GetSettings();
+		JPH::RMat44 wheel_transform = state.physics.vehicle.mVehicleConstraint->GetWheelWorldTransform(w, JPH::Vec3::sAxisY(), JPH::Vec3::sAxisX()); // The cylinder we draw is aligned with Y so we specify that as rotational axis
+		// mDebugRenderer->DrawCylinder(wheel_transform, 0.5f * settings->mWidth, settings->mRadius, Color::sGreen);
+
+		HMM_Mat4 proj = state.graphics.camera.proj;
+		HMM_Mat4 view = state.graphics.camera.view;
+		HMM_Mat4 view_proj = HMM_MulM4(proj, view);
+
+		HMM_Mat4 model = jolt_mat4_to_hmm_mat4(wheel_transform);
+
+		sshape_vertex_t vertices[6 * 1024];
+		uint16_t indices[16 * 1024];
+
+		sshape_buffer_t buf = {};
+		buf.vertices.buffer = SSHAPE_RANGE(vertices);
+		buf.indices.buffer  = SSHAPE_RANGE(indices);
+
+		sshape_cylinder_t _sshape_cylinder_t{};
+		_sshape_cylinder_t.radius = settings->mRadius;
+		_sshape_cylinder_t.height = settings->mWidth;
+		_sshape_cylinder_t.slices = 36;
+		_sshape_cylinder_t.stacks = 20;
+		_sshape_cylinder_t.random_colors = true;
+		buf = sshape_build_cylinder(&buf, &_sshape_cylinder_t);
+		sshape_element_range_t draw = sshape_element_range(&buf);
+
+		const sg_buffer_desc vbuf_desc = sshape_vertex_buffer_desc(&buf);
+		const sg_buffer_desc ibuf_desc = sshape_index_buffer_desc(&buf);
+		state.graphics.vbuf = sg_make_buffer(&vbuf_desc);
+		state.graphics.ibuf = sg_make_buffer(&ibuf_desc);
+
+		sg_bindings _sg_bindings{};
+		_sg_bindings.vertex_buffers[0] = state.graphics.vbuf;
+		_sg_bindings.index_buffer = state.graphics.ibuf;
+		sg_apply_bindings(_sg_bindings);
+		state.graphics.vs_params.mvp = HMM_MulM4(view_proj, model);
+		sg_apply_uniforms(UB_shapes_vs_params, SG_RANGE(state.graphics.vs_params));
+		sg_draw(draw.base_element, draw.num_elements, 1);
+
+		sg_destroy_buffer(state.graphics.vbuf);
+		sg_destroy_buffer(state.graphics.ibuf);
+	}
+}
+
 static void create_physics_scene() {
     using namespace JPH::literals;
 
@@ -524,6 +587,9 @@ static void create_physics_scene() {
     	const float half_vehicle_width = 0.9f;
     	const float half_vehicle_height = 0.2f;
 
+    	// init vehicle
+    	state.physics.vehicle.mExtents = JPH::Vec3(half_vehicle_width, half_vehicle_height, half_vehicle_length);
+    	state.physics.vehicle.mExtents *= 2.0f;
 
     	// Create collision testers
     	state.physics.vehicle.mTesters[0] = new JPH::VehicleCollisionTesterRay(Layers::MOVING);
@@ -671,21 +737,16 @@ static void clear_physics_scene() {
 
 	// destroy vehicle
     {
-    	// delete state.physics.vehicle.mTesters[0];
-    	// delete state.physics.vehicle.mTesters[1];
-    	// delete state.physics.vehicle.mTesters[2];
     	state.physics.vehicle.mTesters[0] = nullptr;
     	state.physics.vehicle.mTesters[1] = nullptr;
     	state.physics.vehicle.mTesters[2] = nullptr;
 
     	state.physics.physics_system.RemoveConstraint(state.physics.vehicle.mVehicleConstraint);
     	state.physics.physics_system.RemoveStepListener(state.physics.vehicle.mVehicleConstraint);
-    	// delete state.physics.vehicle.mVehicleConstraint;
     	state.physics.vehicle.mVehicleConstraint = nullptr;
 
     	body_interface.RemoveBody(state.physics.vehicle.mCarBody->GetID());
     	body_interface.DestroyBody(state.physics.vehicle.mCarBody->GetID());
-    	// delete state.physics.vehicle.mCarBody;
     	state.physics.vehicle.mCarBody = nullptr;
     }
 
@@ -875,11 +936,15 @@ static void frame(void) {
         sg_apply_pipeline(state.graphics.pip_fill);
     }
 
+	// draw main scene
 	draw_jolt_object(state.physics.floor);
 	for (int i = 0; i < 100; i++) {
 		draw_jolt_object(state.physics.spheres[i]);
 		draw_jolt_object(state.physics.boxes[i]);
 	}
+
+	// draw vehicle
+	draw_jolt_vehicle();
 
     sdtx_draw();
     sg_end_pass();
