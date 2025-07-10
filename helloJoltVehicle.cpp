@@ -20,8 +20,8 @@
 #include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
 
 #define SOKOL_IMPL
-// #define SOKOL_GLCORE
-#define SOKOL_D3D11
+#define SOKOL_GLCORE
+// #define SOKOL_D3D11
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_log.h"
