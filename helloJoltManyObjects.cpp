@@ -232,6 +232,7 @@ public:
 
 	DrawAbleTypeEnum type = NUM_SHAPES;
 	JPH::BodyID id;
+	uint32_t color;
 };
 
 class BoxDrawable : public Drawable {
@@ -349,7 +350,7 @@ static void draw_jolt_object(const Drawable& drawable) {
 			_sshape_box_t.height = box.extents.mF32[1];
 			_sshape_box_t.depth  = box.extents.mF32[2];
 			_sshape_box_t.tiles  = 10;
-			_sshape_box_t.random_colors = true;
+			_sshape_box_t.color  = box.color;
 			buf = sshape_build_box(&buf, &_sshape_box_t);
 			draw = sshape_element_range(&buf);
 			break;
@@ -360,7 +361,7 @@ static void draw_jolt_object(const Drawable& drawable) {
 			_sshape_plane_t.width  = plane.width;
 			_sshape_plane_t.depth  = plane.depth;
 			_sshape_plane_t.tiles  = 10;
-			_sshape_plane_t.random_colors = true;
+			_sshape_plane_t.color  = plane.color;
 			buf = sshape_build_plane(&buf, &_sshape_plane_t);
 			draw = sshape_element_range(&buf);
 			break;
@@ -371,7 +372,7 @@ static void draw_jolt_object(const Drawable& drawable) {
 			_sshape_sphere_t.radius = sphere.radius;
 			_sshape_sphere_t.slices = 36;
 			_sshape_sphere_t.stacks = 20;
-			_sshape_sphere_t.random_colors = true;
+			_sshape_sphere_t.color  = sphere.color;
 			buf = sshape_build_sphere(&buf, &_sshape_sphere_t);
 			draw = sshape_element_range(&buf);
 			break;
@@ -383,7 +384,7 @@ static void draw_jolt_object(const Drawable& drawable) {
 			_sshape_cylinder_t.height = cylinder.height;
 			_sshape_cylinder_t.slices = 36;
 			_sshape_cylinder_t.stacks = 20;
-			_sshape_cylinder_t.random_colors = true;
+			_sshape_cylinder_t.color  = cylinder.color;
 			buf = sshape_build_cylinder(&buf, &_sshape_cylinder_t);
 			draw = sshape_element_range(&buf);
 			break;
@@ -395,7 +396,7 @@ static void draw_jolt_object(const Drawable& drawable) {
 			_sshape_torus_t.ring_radius = torus.ring_radius;
 			_sshape_torus_t.rings = 36;
 			_sshape_torus_t.sides = 18;
-			_sshape_torus_t.random_colors = true;
+			_sshape_torus_t.color  = torus.color;
 			buf = sshape_build_torus(&buf, &_sshape_torus_t);
 			draw = sshape_element_range(&buf);
 			break;
@@ -452,6 +453,13 @@ static void create_physics_scene() {
 	    	float posy = random_float() - 12.0f;
 	    	JPH::BodyCreationSettings sphere_settings(sphere_shape, JPH::RVec3(posx, (5.0 + 5.0*i), posy), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
 	    	state.physics.spheres[i].id = body_interface.CreateAndAddBody(sphere_settings, JPH::EActivation::Activate);
+
+	    	uint8_t random_r = static_cast<uint8_t>(random_float() * 255.0f);
+	    	uint8_t random_g = static_cast<uint8_t>(random_float() * 255.0f);
+	    	uint8_t random_b = static_cast<uint8_t>(random_float() * 255.0f);
+	    	uint32_t random_vertex_color = random_r | random_g << 8 | random_b << 16;
+
+	    	state.physics.spheres[i].color = random_vertex_color;
 	    }
     }
 
@@ -472,6 +480,13 @@ static void create_physics_scene() {
     		float posy = random_float() - 12.0f;
     		JPH::BodyCreationSettings box_settings(box_shape, JPH::RVec3(posx, (2.5 + 5.0*i), posy), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
     		state.physics.boxes[i].id = body_interface.CreateAndAddBody(box_settings, JPH::EActivation::Activate);
+
+    		uint8_t random_r = static_cast<uint8_t>(random_float() * 255.0f);
+    		uint8_t random_g = static_cast<uint8_t>(random_float() * 255.0f);
+    		uint8_t random_b = static_cast<uint8_t>(random_float() * 255.0f);
+    		uint32_t random_vertex_color = random_r | random_g << 8 | random_b << 16;
+
+    		state.physics.boxes[i].color = random_vertex_color;
     	}
 	}
 }
