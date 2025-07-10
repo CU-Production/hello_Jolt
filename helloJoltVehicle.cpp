@@ -300,6 +300,14 @@ static struct {
 			JPH::Body*                            mCarBody;
 			JPH::Ref<JPH::VehicleConstraint>      mVehicleConstraint;
 			JPH::Vec3                             mExtents;
+
+			struct {
+				float  mForward = 0.0f;
+				float  mPreviousForward = 1.0f; ///< Keeps track of last car direction so we know when to brake and when to accelerate
+				float  mRight = 0.0f;
+				float  mBrake = 0.0f;
+				float  mHandBrake = 0.0f;
+			} control;
 		} vehicle;
 		BoxDrawable floor = BoxDrawable(JPH::Vec3(200.0f, 0.2f, 200.0f));
 		SphereDrawable spheres[100];
@@ -453,7 +461,6 @@ static void draw_jolt_vehicle() {
 	{
 		const JPH::WheelSettings *settings = state.physics.vehicle.mVehicleConstraint->GetWheels()[w]->GetSettings();
 		JPH::RMat44 wheel_transform = state.physics.vehicle.mVehicleConstraint->GetWheelWorldTransform(w, JPH::Vec3::sAxisY(), JPH::Vec3::sAxisX()); // The cylinder we draw is aligned with Y so we specify that as rotational axis
-		// mDebugRenderer->DrawCylinder(wheel_transform, 0.5f * settings->mWidth, settings->mRadius, Color::sGreen);
 
 		HMM_Mat4 proj = state.graphics.camera.proj;
 		HMM_Mat4 view = state.graphics.camera.view;
@@ -495,6 +502,66 @@ static void draw_jolt_vehicle() {
 	}
 }
 
+static void vehicle_handle_event(const sapp_event* ev) {
+	if (!state.physics.vehicle.mCarBody) return;
+
+	// Determine acceleration and brake
+	// state.physics.vehicle.control.mForward = 0.0f;
+	if (ev->type == SAPP_EVENTTYPE_KEY_DOWN) {
+		switch (ev->key_code) {
+			case SAPP_KEYCODE_UP: state.physics.vehicle.control.mForward = 1.0f; break;
+			case SAPP_KEYCODE_DOWN: state.physics.vehicle.control.mForward = -1.0f; break;
+			default: break;
+		}
+	} else if (ev->type == SAPP_EVENTTYPE_KEY_UP) {
+		switch (ev->key_code) {
+			case SAPP_KEYCODE_UP: state.physics.vehicle.control.mForward = 0.0f; break;
+			case SAPP_KEYCODE_DOWN: state.physics.vehicle.control.mForward = 0.0f; break;
+			default: break;
+		}
+	}
+
+	// Check if we're reversing direction
+	state.physics.vehicle.control.mBrake = 0.0f;
+	if (state.physics.vehicle.control.mPreviousForward * state.physics.vehicle.control.mForward < 0.0f) {
+		// Get vehicle velocity in local space to the body of the vehicle
+		float velocity = (state.physics.vehicle.mCarBody->GetRotation().Conjugated() * state.physics.vehicle.mCarBody->GetLinearVelocity()).GetZ();
+		if ((state.physics.vehicle.control.mForward > 0.0f && velocity < -0.1f) || (state.physics.vehicle.control.mForward < 0.0f && velocity > 0.1f)) {
+			// Brake while we've not stopped yet
+			state.physics.vehicle.control.mForward = 0.0f;
+			state.physics.vehicle.control.mBrake = 1.0f;
+		} else {
+			// When we've come to a stop, accept the new direction
+			state.physics.vehicle.control.mPreviousForward = state.physics.vehicle.control.mForward;
+		}
+	}
+
+	// Hand brake will cancel gas pedal
+	// state.physics.vehicle.control.mHandBrake = 0.0f;
+	if (ev->type == SAPP_EVENTTYPE_KEY_DOWN && ev->key_code == SAPP_KEYCODE_Z) {
+		state.physics.vehicle.control.mForward = 0.0f;
+		state.physics.vehicle.control.mHandBrake = 1.0f;
+	} else if (ev->type == SAPP_EVENTTYPE_KEY_UP && ev->key_code == SAPP_KEYCODE_Z) {
+		state.physics.vehicle.control.mHandBrake = 0.0f;
+	}
+
+	// Steering
+	// state.physics.vehicle.control.mRight = 0.0f;
+	if (ev->type == SAPP_EVENTTYPE_KEY_DOWN) {
+		switch (ev->key_code) {
+			case SAPP_KEYCODE_LEFT: state.physics.vehicle.control.mRight = -1.0f; break;
+			case SAPP_KEYCODE_RIGHT: state.physics.vehicle.control.mRight = 1.0f; break;
+			default: break;
+		}
+	} else if (ev->type == SAPP_EVENTTYPE_KEY_UP) {
+		switch (ev->key_code) {
+			case SAPP_KEYCODE_LEFT: state.physics.vehicle.control.mRight = 0.0f; break;
+			case SAPP_KEYCODE_RIGHT: state.physics.vehicle.control.mRight = 0.0f; break;
+			default: break;
+		}
+	}
+}
+
 static void create_physics_scene() {
     using namespace JPH::literals;
 
@@ -522,7 +589,7 @@ static void create_physics_scene() {
 	    for (int i = 0; i < 100; i++) {
 	    	state.physics.spheres[i].radius = tmp_radius;
 	    	float posx = random_float();
-	    	float posy = random_float() - 12.0f;
+	    	float posy = random_float() + 12.0f;
 	    	JPH::BodyCreationSettings sphere_settings(sphere_shape, JPH::RVec3(posx, (5.0 + 5.0*i), posy), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
 	    	state.physics.spheres[i].id = body_interface.CreateAndAddBody(sphere_settings, JPH::EActivation::Activate);
 	    }
@@ -542,7 +609,7 @@ static void create_physics_scene() {
     	for (int i = 0; i < 100; i++) {
     		state.physics.boxes[i].extents = extents;
     		float posx = random_float();
-    		float posy = random_float() - 12.0f;
+    		float posy = random_float() + 12.0f;
     		JPH::BodyCreationSettings box_settings(box_shape, JPH::RVec3(posx, (2.5 + 5.0*i), posy), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
     		state.physics.boxes[i].id = body_interface.CreateAndAddBody(box_settings, JPH::EActivation::Activate);
     	}
@@ -787,9 +854,9 @@ static void init(void) {
 	    camera2_desc_t camdesc = {0};
 	    camdesc.nearz = 0.1f;
 	    camdesc.farz = 1000.0f;
-	    camdesc.pos = HMM_V3(0.0f, 5.5f, 6.0f);
+	    camdesc.pos = HMM_V3(0.0f, 5.5f, -25.0f);
 	    camdesc.up = HMM_V3(0.0f, 1.0f, 0.0f);
-	    camdesc.yaw = -90.0f;
+	    camdesc.yaw = 90.0f;
 	    camdesc.pitch = 0.0f;
 	    cam_init(&state.graphics.camera, &camdesc);
 
@@ -889,11 +956,42 @@ static void cleanup(void) {
 }
 
 static void frame(void) {
-	// physics update
+	// Jolt Physics Update
+	JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
+
+	// jolt vehicle physics update
+	{
+		static bool	    sLimitedSlipDifferentials = true;
+		static float    sMaxEngineTorque = 500.0f;
+		static float    sClutchStrength = 10.0f;
+
+		// On user input, assure that the car is active
+		if (state.physics.vehicle.control.mRight != 0.0f || state.physics.vehicle.control.mForward != 0.0f || state.physics.vehicle.control.mBrake != 0.0f || state.physics.vehicle.control.mHandBrake != 0.0f)
+			body_interface.ActivateBody(state.physics.vehicle.mCarBody->GetID());
+
+		JPH::WheeledVehicleController *controller = static_cast<JPH::WheeledVehicleController *>(state.physics.vehicle.mVehicleConstraint->GetController());
+
+		// Update vehicle statistics
+		controller->GetEngine().mMaxTorque = sMaxEngineTorque;
+		controller->GetTransmission().mClutchStrength = sClutchStrength;
+
+		// Set slip ratios to the same for everything
+		float limited_slip_ratio = sLimitedSlipDifferentials? 1.4f : FLT_MAX;
+		controller->SetDifferentialLimitedSlipRatio(limited_slip_ratio);
+		for (JPH::VehicleDifferentialSettings &d : controller->GetDifferentials())
+			d.mLimitedSlipRatio = limited_slip_ratio;
+
+		// Pass the input on to the constraint
+		controller->SetDriverInput(state.physics.vehicle.control.mForward, state.physics.vehicle.control.mRight, state.physics.vehicle.control.mBrake, state.physics.vehicle.control.mHandBrake);
+
+		// // Set the collision tester
+		// state.physics.vehicle.mVehicleConstraint->SetVehicleCollisionTester(state.physics.vehicle.mTesters[sCollisionMode]);
+	}
+
+	// physics system update
     const int cCollisionSteps = 2;
     state.physics.physics_system.Update((float)sapp_frame_duration(), cCollisionSteps, state.physics.temp_allocator, state.physics.job_system);
 
-	JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
 	for (int i = 0; i < 100; i++) {
 		if (state.physics.spheres[i].id.IsInvalid()) continue;
 		JPH::RVec3 position = body_interface.GetCenterOfMassPosition(state.physics.spheres[i].id);
@@ -963,6 +1061,7 @@ static void input(const sapp_event* ev) {
         }
     }
     cam_handle_event(&state.graphics.camera, ev);
+	vehicle_handle_event(ev);
 }
 
 sapp_desc sokol_main(int argc, char* argv[]) {
