@@ -16,6 +16,7 @@
 // jolt vehicle headers
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
 #include <Jolt/Physics/Vehicle/VehicleController.h>
+#include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 #include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
 
 #define SOKOL_IMPL
@@ -484,36 +485,36 @@ static void create_physics_scene() {
 
 	// vehicle
     {
-    	static float			sInitialRollAngle = 0;
-    	static float			sMaxRollAngle = (60.0f) * HMM_DegToRad;
-    	static float			sMaxSteeringAngle = (30.0f) * HMM_DegToRad;
-    	static int			sCollisionMode = 2;
-    	static bool			sFourWheelDrive = false;
-    	static bool			sAntiRollbar = true;
-    	static bool			sLimitedSlipDifferentials = true;
-    	static bool			sOverrideGravity = false;					///< If true, gravity is overridden to always oppose the ground normal
-    	static float			sMaxEngineTorque = 500.0f;
-    	static float			sClutchStrength = 10.0f;
-    	static float			sFrontCasterAngle = 0.0f;
-    	static float			sFrontKingPinAngle = 0.0f;
-    	static float			sFrontCamber = 0.0f;
-    	static float			sFrontToe = 0.0f;
-    	static float			sFrontSuspensionForwardAngle = 0.0f;
-    	static float			sFrontSuspensionSidewaysAngle = 0.0f;
-    	static float			sFrontSuspensionMinLength = 0.3f;
-    	static float			sFrontSuspensionMaxLength = 0.5f;
-    	static float			sFrontSuspensionFrequency = 1.5f;
-    	static float			sFrontSuspensionDamping = 0.5f;
-    	static float			sRearSuspensionForwardAngle = 0.0f;
-    	static float			sRearSuspensionSidewaysAngle = 0.0f;
-    	static float			sRearCasterAngle = 0.0f;
-    	static float			sRearKingPinAngle = 0.0f;
-    	static float			sRearCamber = 0.0f;
-    	static float			sRearToe = 0.0f;
-    	static float			sRearSuspensionMinLength = 0.3f;
-    	static float			sRearSuspensionMaxLength = 0.5f;
-    	static float			sRearSuspensionFrequency = 1.5f;
-    	static float			sRearSuspensionDamping = 0.5f;
+    	static float    sInitialRollAngle = 0;
+    	static float    sMaxRollAngle = (60.0f) * HMM_DegToRad;
+    	static float    sMaxSteeringAngle = (30.0f) * HMM_DegToRad;
+    	static int      sCollisionMode = 2;
+    	static bool	    sFourWheelDrive = false;
+    	static bool	    sAntiRollbar = true;
+    	static bool	    sLimitedSlipDifferentials = true;
+    	static bool	    sOverrideGravity = false;					///< If true, gravity is overridden to always oppose the ground normal
+    	static float    sMaxEngineTorque = 500.0f;
+    	static float    sClutchStrength = 10.0f;
+    	static float    sFrontCasterAngle = 0.0f;
+    	static float    sFrontKingPinAngle = 0.0f;
+    	static float    sFrontCamber = 0.0f;
+    	static float    sFrontToe = 0.0f;
+    	static float    sFrontSuspensionForwardAngle = 0.0f;
+    	static float    sFrontSuspensionSidewaysAngle = 0.0f;
+    	static float    sFrontSuspensionMinLength = 0.3f;
+    	static float    sFrontSuspensionMaxLength = 0.5f;
+    	static float    sFrontSuspensionFrequency = 1.5f;
+    	static float    sFrontSuspensionDamping = 0.5f;
+    	static float    sRearSuspensionForwardAngle = 0.0f;
+    	static float    sRearSuspensionSidewaysAngle = 0.0f;
+    	static float    sRearCasterAngle = 0.0f;
+    	static float    sRearKingPinAngle = 0.0f;
+    	static float    sRearCamber = 0.0f;
+    	static float    sRearToe = 0.0f;
+    	static float    sRearSuspensionMinLength = 0.3f;
+    	static float    sRearSuspensionMaxLength = 0.5f;
+    	static float    sRearSuspensionFrequency = 1.5f;
+    	static float    sRearSuspensionDamping = 0.5f;
 
     	const float wheel_radius = 0.3f;
     	const float wheel_width = 0.1f;
@@ -523,7 +524,8 @@ static void create_physics_scene() {
 
 
     	JPH::Ref<JPH::VehicleCollisionTester> mTesters[3];
-    	JPH::Body* mCarBody;
+    	JPH::Body*                            mCarBody;
+    	JPH::Ref<JPH::VehicleConstraint>      mVehicleConstraint;
 
     	// Create collision testers
     	mTesters[0] = new JPH::VehicleCollisionTesterRay(Layers::MOVING);
@@ -538,6 +540,131 @@ static void create_physics_scene() {
     	car_body_settings.mMassPropertiesOverride.mMass = 1500.0f;
     	mCarBody = body_interface.CreateBody(car_body_settings);
     	body_interface.AddBody(mCarBody->GetID(), JPH::EActivation::Activate);
+
+    	// Create vehicle constraint
+    	JPH::VehicleConstraintSettings vehicle_constraint_settings;
+    	vehicle_constraint_settings.mDrawConstraintSize = 0.1f;
+    	vehicle_constraint_settings.mMaxPitchRollAngle = sMaxRollAngle;
+
+    	// Suspension direction
+    	JPH::Vec3 front_suspension_dir = JPH::Vec3(JPH::Tan(sFrontSuspensionSidewaysAngle), -1, JPH::Tan(sFrontSuspensionForwardAngle)).Normalized();
+    	JPH::Vec3 front_steering_axis = JPH::Vec3(-JPH::Tan(sFrontKingPinAngle), 1, -JPH::Tan(sFrontCasterAngle)).Normalized();
+    	JPH::Vec3 front_wheel_up = JPH::Vec3(JPH::Sin(sFrontCamber), JPH::Cos(sFrontCamber), 0);
+    	JPH::Vec3 front_wheel_forward = JPH::Vec3(-JPH::Sin(sFrontToe), 0, JPH::Cos(sFrontToe));
+    	JPH::Vec3 rear_suspension_dir = JPH::Vec3(JPH::Tan(sRearSuspensionSidewaysAngle), -1, JPH::Tan(sRearSuspensionForwardAngle)).Normalized();
+    	JPH::Vec3 rear_steering_axis = JPH::Vec3(-JPH::Tan(sRearKingPinAngle), 1, -JPH::Tan(sRearCasterAngle)).Normalized();
+    	JPH::Vec3 rear_wheel_up = JPH::Vec3(JPH::Sin(sRearCamber), JPH::Cos(sRearCamber), 0);
+    	JPH::Vec3 rear_wheel_forward = JPH::Vec3(-JPH::Sin(sRearToe), 0, JPH::Cos(sRearToe));
+    	JPH::Vec3 flip_x(-1, 1, 1);
+
+    	// Wheels, left front
+		JPH::WheelSettingsWV *w1 = new JPH::WheelSettingsWV;
+		w1->mPosition = JPH::Vec3(half_vehicle_width, -0.9f * half_vehicle_height, half_vehicle_length - 2.0f * wheel_radius);
+		w1->mSuspensionDirection = front_suspension_dir;
+		w1->mSteeringAxis = front_steering_axis;
+		w1->mWheelUp = front_wheel_up;
+		w1->mWheelForward = front_wheel_forward;
+    	w1->mSuspensionMinLength = sFrontSuspensionMinLength;
+		w1->mSuspensionMaxLength = sFrontSuspensionMaxLength;
+		w1->mSuspensionSpring.mFrequency = sFrontSuspensionFrequency;
+		w1->mSuspensionSpring.mDamping = sFrontSuspensionDamping;
+		w1->mMaxSteerAngle = sMaxSteeringAngle;
+		w1->mMaxHandBrakeTorque = 0.0f; // Front wheel doesn't have hand brake
+
+		// Right front
+		JPH::WheelSettingsWV *w2 = new JPH::WheelSettingsWV;
+		w2->mPosition = JPH::Vec3(-half_vehicle_width, -0.9f * half_vehicle_height, half_vehicle_length - 2.0f * wheel_radius);
+		w2->mSuspensionDirection = flip_x * front_suspension_dir;
+		w2->mSteeringAxis = flip_x * front_steering_axis;
+		w2->mWheelUp = flip_x * front_wheel_up;
+		w2->mWheelForward = flip_x * front_wheel_forward;
+		w2->mSuspensionMinLength = sFrontSuspensionMinLength;
+		w2->mSuspensionMaxLength = sFrontSuspensionMaxLength;
+		w2->mSuspensionSpring.mFrequency = sFrontSuspensionFrequency;
+		w2->mSuspensionSpring.mDamping = sFrontSuspensionDamping;
+		w2->mMaxSteerAngle = sMaxSteeringAngle;
+		w2->mMaxHandBrakeTorque = 0.0f; // Front wheel doesn't have hand brake
+
+		// Left rear
+		JPH::WheelSettingsWV *w3 = new JPH::WheelSettingsWV;
+		w3->mPosition = JPH::Vec3(half_vehicle_width, -0.9f * half_vehicle_height, -half_vehicle_length + 2.0f * wheel_radius);
+		w3->mSuspensionDirection = rear_suspension_dir;
+		w3->mSteeringAxis = rear_steering_axis;
+		w3->mWheelUp = rear_wheel_up;
+		w3->mWheelForward = rear_wheel_forward;
+		w3->mSuspensionMinLength = sRearSuspensionMinLength;
+		w3->mSuspensionMaxLength = sRearSuspensionMaxLength;
+		w3->mSuspensionSpring.mFrequency = sRearSuspensionFrequency;
+		w3->mSuspensionSpring.mDamping = sRearSuspensionDamping;
+		w3->mMaxSteerAngle = 0.0f;
+
+		// Right rear
+		JPH::WheelSettingsWV *w4 = new JPH::WheelSettingsWV;
+		w4->mPosition = JPH::Vec3(-half_vehicle_width, -0.9f * half_vehicle_height, -half_vehicle_length + 2.0f * wheel_radius);
+		w4->mSuspensionDirection = flip_x * rear_suspension_dir;
+		w4->mSteeringAxis = flip_x * rear_steering_axis;
+		w4->mWheelUp = flip_x * rear_wheel_up;
+		w4->mWheelForward = flip_x * rear_wheel_forward;
+		w4->mSuspensionMinLength = sRearSuspensionMinLength;
+		w4->mSuspensionMaxLength = sRearSuspensionMaxLength;
+		w4->mSuspensionSpring.mFrequency = sRearSuspensionFrequency;
+		w4->mSuspensionSpring.mDamping = sRearSuspensionDamping;
+		w4->mMaxSteerAngle = 0.0f;
+
+    	vehicle_constraint_settings.mWheels = { w1, w2, w3, w4 };
+
+    	for (JPH::WheelSettings *w : vehicle_constraint_settings.mWheels) {
+    		w->mRadius = wheel_radius;
+    		w->mWidth = wheel_width;
+    	}
+
+    	JPH::WheeledVehicleControllerSettings *controller_settings = new JPH::WheeledVehicleControllerSettings;
+    	vehicle_constraint_settings.mController = controller_settings;
+
+    	// Differential
+    	controller_settings->mDifferentials.resize(sFourWheelDrive? 2 : 1);
+    	controller_settings->mDifferentials[0].mLeftWheel = 0;
+    	controller_settings->mDifferentials[0].mRightWheel = 1;
+    	if (sFourWheelDrive)
+    	{
+    		controller_settings->mDifferentials[1].mLeftWheel = 2;
+    		controller_settings->mDifferentials[1].mRightWheel = 3;
+
+    		// Split engine torque
+    		controller_settings->mDifferentials[0].mEngineTorqueRatio = controller_settings->mDifferentials[1].mEngineTorqueRatio = 0.5f;
+    	}
+
+    	// Anti rollbars
+    	if (sAntiRollbar)
+    	{
+    		vehicle_constraint_settings.mAntiRollBars.resize(2);
+    		vehicle_constraint_settings.mAntiRollBars[0].mLeftWheel = 0;
+    		vehicle_constraint_settings.mAntiRollBars[0].mRightWheel = 1;
+    		vehicle_constraint_settings.mAntiRollBars[1].mLeftWheel = 2;
+    		vehicle_constraint_settings.mAntiRollBars[1].mRightWheel = 3;
+    	}
+
+    	mVehicleConstraint = new JPH::VehicleConstraint(*mCarBody, vehicle_constraint_settings);
+
+    	// The vehicle settings were tweaked with a buggy implementation of the longitudinal tire impulses, this meant that PhysicsSettings::mNumVelocitySteps times more impulse
+    	// could be applied than intended. To keep the behavior of the vehicle the same we increase the max longitudinal impulse by the same factor. In a future version the vehicle
+    	// will be retweaked.
+    	static_cast<JPH::WheeledVehicleController *>(mVehicleConstraint->GetController())->SetTireMaxImpulseCallback(
+			[](JPH::uint, float &outLongitudinalImpulse, float &outLateralImpulse, float inSuspensionImpulse, float inLongitudinalFriction, float inLateralFriction, float, float, float)
+			{
+				outLongitudinalImpulse = 10.0f * inLongitudinalFriction * inSuspensionImpulse;
+				outLateralImpulse = inLateralFriction * inSuspensionImpulse;
+			});
+
+    	state.physics.physics_system.AddConstraint(mVehicleConstraint);
+    	state.physics.physics_system.AddStepListener(mVehicleConstraint);
+
+    	// // Pass the input on to the constraint
+    	// JPH::WheeledVehicleController *controller = static_cast<JPH::WheeledVehicleController *>(mVehicleConstraint->GetController());
+    	// controller->SetDriverInput(mForward, mRight, mBrake, mHandBrake);
+
+    	// Set the collision tester
+    	mVehicleConstraint->SetVehicleCollisionTester(mTesters[sCollisionMode]);
     }
 }
 
