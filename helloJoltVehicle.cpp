@@ -296,7 +296,9 @@ static struct {
     } graphics;
 	struct {
 		struct {
-
+			JPH::Ref<JPH::VehicleCollisionTester> mTesters[3];
+			JPH::Body*                            mCarBody;
+			JPH::Ref<JPH::VehicleConstraint>      mVehicleConstraint;
 		} vehicle;
 		BoxDrawable floor = BoxDrawable(JPH::Vec3(200.0f, 0.2f, 200.0f));
 		SphereDrawable spheres[100];
@@ -523,14 +525,10 @@ static void create_physics_scene() {
     	const float half_vehicle_height = 0.2f;
 
 
-    	JPH::Ref<JPH::VehicleCollisionTester> mTesters[3];
-    	JPH::Body*                            mCarBody;
-    	JPH::Ref<JPH::VehicleConstraint>      mVehicleConstraint;
-
     	// Create collision testers
-    	mTesters[0] = new JPH::VehicleCollisionTesterRay(Layers::MOVING);
-    	mTesters[1] = new JPH::VehicleCollisionTesterCastSphere(Layers::MOVING, 0.5f * wheel_width);
-    	mTesters[2] = new JPH::VehicleCollisionTesterCastCylinder(Layers::MOVING);
+    	state.physics.vehicle.mTesters[0] = new JPH::VehicleCollisionTesterRay(Layers::MOVING);
+    	state.physics.vehicle.mTesters[1] = new JPH::VehicleCollisionTesterCastSphere(Layers::MOVING, 0.5f * wheel_width);
+    	state.physics.vehicle.mTesters[2] = new JPH::VehicleCollisionTesterCastCylinder(Layers::MOVING);
 
     	// Create vehicle body
     	JPH::RVec3 position(0, 2, 0);
@@ -538,8 +536,8 @@ static void create_physics_scene() {
     	JPH::BodyCreationSettings car_body_settings(car_shape, position, JPH::Quat::sRotation(JPH::Vec3::sAxisZ(), sInitialRollAngle), JPH::EMotionType::Dynamic, Layers::MOVING);
     	car_body_settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
     	car_body_settings.mMassPropertiesOverride.mMass = 1500.0f;
-    	mCarBody = body_interface.CreateBody(car_body_settings);
-    	body_interface.AddBody(mCarBody->GetID(), JPH::EActivation::Activate);
+    	state.physics.vehicle.mCarBody = body_interface.CreateBody(car_body_settings);
+    	body_interface.AddBody(state.physics.vehicle.mCarBody->GetID(), JPH::EActivation::Activate);
 
     	// Create vehicle constraint
     	JPH::VehicleConstraintSettings vehicle_constraint_settings;
@@ -644,33 +642,54 @@ static void create_physics_scene() {
     		vehicle_constraint_settings.mAntiRollBars[1].mRightWheel = 3;
     	}
 
-    	mVehicleConstraint = new JPH::VehicleConstraint(*mCarBody, vehicle_constraint_settings);
+    	state.physics.vehicle.mVehicleConstraint = new JPH::VehicleConstraint(*state.physics.vehicle.mCarBody, vehicle_constraint_settings);
 
     	// The vehicle settings were tweaked with a buggy implementation of the longitudinal tire impulses, this meant that PhysicsSettings::mNumVelocitySteps times more impulse
     	// could be applied than intended. To keep the behavior of the vehicle the same we increase the max longitudinal impulse by the same factor. In a future version the vehicle
     	// will be retweaked.
-    	static_cast<JPH::WheeledVehicleController *>(mVehicleConstraint->GetController())->SetTireMaxImpulseCallback(
+    	static_cast<JPH::WheeledVehicleController *>(state.physics.vehicle.mVehicleConstraint->GetController())->SetTireMaxImpulseCallback(
 			[](JPH::uint, float &outLongitudinalImpulse, float &outLateralImpulse, float inSuspensionImpulse, float inLongitudinalFriction, float inLateralFriction, float, float, float)
 			{
 				outLongitudinalImpulse = 10.0f * inLongitudinalFriction * inSuspensionImpulse;
 				outLateralImpulse = inLateralFriction * inSuspensionImpulse;
 			});
 
-    	state.physics.physics_system.AddConstraint(mVehicleConstraint);
-    	state.physics.physics_system.AddStepListener(mVehicleConstraint);
+    	state.physics.physics_system.AddConstraint(state.physics.vehicle.mVehicleConstraint);
+    	state.physics.physics_system.AddStepListener(state.physics.vehicle.mVehicleConstraint);
 
     	// // Pass the input on to the constraint
     	// JPH::WheeledVehicleController *controller = static_cast<JPH::WheeledVehicleController *>(mVehicleConstraint->GetController());
     	// controller->SetDriverInput(mForward, mRight, mBrake, mHandBrake);
 
     	// Set the collision tester
-    	mVehicleConstraint->SetVehicleCollisionTester(mTesters[sCollisionMode]);
+    	state.physics.vehicle.mVehicleConstraint->SetVehicleCollisionTester(state.physics.vehicle.mTesters[sCollisionMode]);
     }
 }
 
 static void clear_physics_scene() {
     JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
 
+	// destroy vehicle
+    {
+    	// delete state.physics.vehicle.mTesters[0];
+    	// delete state.physics.vehicle.mTesters[1];
+    	// delete state.physics.vehicle.mTesters[2];
+    	state.physics.vehicle.mTesters[0] = nullptr;
+    	state.physics.vehicle.mTesters[1] = nullptr;
+    	state.physics.vehicle.mTesters[2] = nullptr;
+
+    	state.physics.physics_system.RemoveConstraint(state.physics.vehicle.mVehicleConstraint);
+    	state.physics.physics_system.RemoveStepListener(state.physics.vehicle.mVehicleConstraint);
+    	// delete state.physics.vehicle.mVehicleConstraint;
+    	state.physics.vehicle.mVehicleConstraint = nullptr;
+
+    	body_interface.RemoveBody(state.physics.vehicle.mCarBody->GetID());
+    	body_interface.DestroyBody(state.physics.vehicle.mCarBody->GetID());
+    	// delete state.physics.vehicle.mCarBody;
+    	state.physics.vehicle.mCarBody = nullptr;
+    }
+
+	// destroy scene
 	for (int i = 0; i < 100; i++) {
 		if (state.physics.boxes[i].id.IsInvalid()) continue;
 		body_interface.RemoveBody(state.physics.boxes[i].id);
