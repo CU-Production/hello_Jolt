@@ -44,3 +44,6 @@ target_link_libraries(helloJoltManyObjects PRIVATE Jolt::Jolt sokol hmm)
 
 add_executable(helloJoltVehicle helloJoltVehicle.cpp)
 target_link_libraries(helloJoltVehicle PRIVATE Jolt::Jolt sokol hmm)
+
+add_executable(helloJoltRagdoll helloJoltRagdoll.cpp)
+target_link_libraries(helloJoltRagdoll PRIVATE Jolt::Jolt sokol hmm)
