@@ -232,6 +232,7 @@ public:
 		PLANE,
 		SPHERE,
 		CYLINDER,
+		CAPSULE,
 		TORUS,
 		NUM_SHAPES
 	};
@@ -271,6 +272,14 @@ public:
 	float height;
 };
 
+class CapsuleDrawable : public Drawable {
+public:
+	CapsuleDrawable(): radius(0), height(0) { type = CAPSULE; }
+	CapsuleDrawable(float inRadius, float inHeight): radius(inRadius), height(inHeight) { type = CYLINDER; }
+	float radius;
+	float height;
+};
+
 class TorusDrawable : public Drawable {
 public:
 	TorusDrawable() : radius(0), ring_radius(0) { type = TORUS; }
@@ -305,7 +314,7 @@ static struct {
 
 		struct {
 			JPH::Ref<JPH::Ragdoll> ragdoll;
-			std::vector<CylinderDrawable> cylinders{12};
+			std::vector<CapsuleDrawable> capsules{12};
 		} ragdoll;
 
 		JPH::TempAllocatorImpl* temp_allocator = nullptr;
@@ -409,6 +418,31 @@ static void draw_jolt_object(const Drawable& drawable) {
 			_sshape_torus_t.sides = 18;
 			_sshape_torus_t.color  = torus.color;
 			buf = sshape_build_torus(&buf, &_sshape_torus_t);
+			draw = sshape_element_range(&buf);
+			break;
+		}
+		case Drawable::CAPSULE: {
+			const CapsuleDrawable& capsule = static_cast<const CapsuleDrawable&>(drawable);
+			// capsule = 1 cylinder + 2 spheres
+			sshape_cylinder_t _sshape_cylinder_t{};
+			_sshape_cylinder_t.radius = capsule.radius;
+			_sshape_cylinder_t.height = capsule.height;
+			_sshape_cylinder_t.slices = 36;
+			_sshape_cylinder_t.stacks = 20;
+			_sshape_cylinder_t.color  = capsule.color;
+			_sshape_cylinder_t.merge  = false;
+			buf = sshape_build_cylinder(&buf, &_sshape_cylinder_t);
+			sshape_sphere_t _sshape_sphere_t{};
+			_sshape_sphere_t.radius = capsule.radius;
+			_sshape_sphere_t.slices = 36;
+			_sshape_sphere_t.stacks = 20;
+			_sshape_sphere_t.color  = capsule.color;
+			_sshape_sphere_t.merge  = true;
+			_sshape_sphere_t.transform = _sshape_mat4_identity();
+			_sshape_sphere_t.transform.m[3][1] = capsule.height * 0.5f;
+			buf = sshape_build_sphere(&buf, &_sshape_sphere_t);
+			_sshape_sphere_t.transform.m[3][1] = -capsule.height * 0.5f;
+			buf = sshape_build_sphere(&buf, &_sshape_sphere_t);
 			draw = sshape_element_range(&buf);
 			break;
 		}
@@ -689,16 +723,16 @@ static void create_physics_scene() {
     	state.physics.ragdoll.ragdoll->AddToPhysicsSystem(JPH::EActivation::Activate);
 
     	for (int i = 0; i < state.physics.ragdoll.ragdoll->GetBodyCount(); i++) {
-    		state.physics.ragdoll.cylinders[i].id = state.physics.ragdoll.ragdoll->GetBodyID(i);
+    		state.physics.ragdoll.capsules[i].id = state.physics.ragdoll.ragdoll->GetBodyID(i);
     		JPH::CapsuleShape& capsule = (JPH::CapsuleShape&)(*shapes[i]);
-    		state.physics.ragdoll.cylinders[i].radius = capsule.GetRadius();
-    		state.physics.ragdoll.cylinders[i].height = capsule.GetHalfHeightOfCylinder() * 2.0f;
+    		state.physics.ragdoll.capsules[i].radius = capsule.GetRadius();
+    		state.physics.ragdoll.capsules[i].height = capsule.GetHalfHeightOfCylinder() * 2.0f;
 
     		uint8_t random_r = static_cast<uint8_t>(random_float() * 255.0f);
     		uint8_t random_g = static_cast<uint8_t>(random_float() * 255.0f);
     		uint8_t random_b = static_cast<uint8_t>(random_float() * 255.0f);
     		uint32_t random_vertex_color = random_r | random_g << 8 | random_b << 16;
-    		state.physics.ragdoll.cylinders[i].color = random_vertex_color;
+    		state.physics.ragdoll.capsules[i].color = random_vertex_color;
     	}
     }
 }
@@ -904,8 +938,8 @@ static void frame(void) {
 
 	// draw ragdoll
 	{
-    	for (int i = 0; i < state.physics.ragdoll.cylinders.size(); i++) {
-			draw_jolt_object(state.physics.ragdoll.cylinders[i]);
+    	for (int i = 0; i < state.physics.ragdoll.capsules.size(); i++) {
+			draw_jolt_object(state.physics.ragdoll.capsules[i]);
     	}
 	}
 
