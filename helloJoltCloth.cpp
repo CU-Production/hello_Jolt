@@ -563,7 +563,7 @@ static void create_physics_scene() {
     	JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
     	JPH::ShapeRefC floor_shape = floor_shape_result.Get();
 
-    	JPH::BodyCreationSettings floor_settings(floor_shape, JPH::RVec3(0.0_r, -1.0_r, 0.0_r), JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::NON_MOVING);
+    	JPH::BodyCreationSettings floor_settings(floor_shape, JPH::RVec3(0.0_r, -5.0_r, 0.0_r), JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::NON_MOVING);
     	state.physics.floor.id = body_interface.CreateAndAddBody(floor_settings, JPH::EActivation::DontActivate);
     }
 
@@ -575,7 +575,10 @@ static void create_physics_scene() {
 	    	state.physics.spheres[i].radius = tmp_radius;
 	    	float posx = random_float();
 	    	float posy = random_float() - 12.0f;
-	    	JPH::BodyCreationSettings sphere_settings(sphere_shape, JPH::RVec3(posx, (5.0 + 5.0*i), posy), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
+	    	JPH::BodyCreationSettings sphere_settings(sphere_shape, JPH::RVec3(posx, (10.0 + 5.0*i), posy), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
+	    	sphere_settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+	    	sphere_settings.mMassPropertiesOverride.mMass = 5.0f;
+	    	sphere_settings.mMotionQuality = JPH::EMotionQuality::LinearCast;
 	    	state.physics.spheres[i].id = body_interface.CreateAndAddBody(sphere_settings, JPH::EActivation::Activate);
 
 	    	uint8_t random_r = static_cast<uint8_t>(random_float() * 255.0f);
@@ -603,6 +606,9 @@ static void create_physics_scene() {
     		float posx = random_float();
     		float posy = random_float() - 12.0f;
     		JPH::BodyCreationSettings box_settings(box_shape, JPH::RVec3(posx, (7.5 + 5.0*i), posy), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
+    		box_settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+    		box_settings.mMassPropertiesOverride.mMass = 5.0f;
+    		box_settings.mMotionQuality = JPH::EMotionQuality::LinearCast;
     		state.physics.boxes[i].id = body_interface.CreateAndAddBody(box_settings, JPH::EActivation::Activate);
 
     		uint8_t random_r = static_cast<uint8_t>(random_float() * 255.0f);
@@ -782,13 +788,13 @@ static void init(void) {
 
 		JPH::RegisterTypes();
 
-		state.physics.temp_allocator = new JPH::TempAllocatorImpl(10*1024*1024);
+		state.physics.temp_allocator = new JPH::TempAllocatorImpl(32*1024*1024);
 		state.physics.job_system = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
 
-		const JPH::uint cMaxBodies = 1024;
+		const JPH::uint cMaxBodies = 10240;
 		const JPH::uint cNumBodyMutexes = 0;
-		const JPH::uint cMaxBodyPairs = 1024;
-		const JPH::uint cMaxContactConstraints = 1024;
+		const JPH::uint cMaxBodyPairs = 65536;
+		const JPH::uint cMaxContactConstraints = 20480;
 
         state.physics.broad_phase_layer_interface = new BPLayerInterfaceImpl();
         state.physics.object_vs_broadphase_layer_filter = new ObjectVsBroadPhaseLayerFilterImpl();
@@ -840,7 +846,7 @@ static void cleanup(void) {
 
 static void frame(void) {
 	// physics update
-    const int cCollisionSteps = 1;
+    const int cCollisionSteps = 4;
     state.physics.physics_system.Update((float)sapp_frame_duration(), cCollisionSteps, state.physics.temp_allocator, state.physics.job_system);
 
 	JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
