@@ -4,6 +4,7 @@
 #include <Jolt/Jolt.h>
 
 #include <Jolt/RegisterTypes.h>
+#include <Jolt/Math/Math.h>
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
@@ -11,6 +12,10 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
+#include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
+#include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 
@@ -32,6 +37,10 @@
 #include <cstdarg>
 #include <thread>
 #include <random>
+
+#include "Jolt/Physics/Collision/Shape/CylinderShape.h"
+#include "Jolt/Physics/SoftBody/SoftBodyShape.h"
+
 
 #define DEMO_ENABLE_EVENT_LOGS 0
 
@@ -226,6 +235,7 @@ public:
 		PLANE,
 		SPHERE,
 		CYLINDER,
+		CAPSULE,
 		TORUS,
 		NUM_SHAPES
 	};
@@ -265,6 +275,14 @@ public:
 	float height;
 };
 
+class CapsuleDrawable : public Drawable {
+public:
+	CapsuleDrawable(): radius(0), height(0) { type = CAPSULE; }
+	CapsuleDrawable(float inRadius, float inHeight): radius(inRadius), height(inHeight) { type = CYLINDER; }
+	float radius;
+	float height;
+};
+
 class TorusDrawable : public Drawable {
 public:
 	TorusDrawable() : radius(0), ring_radius(0) { type = TORUS; }
@@ -296,6 +314,11 @@ static struct {
 		BoxDrawable floor = BoxDrawable(JPH::Vec3(200.0f, 0.2f, 200.0f));
 		SphereDrawable spheres[100];
 		BoxDrawable boxes[100];
+
+		struct {
+			JPH::BodyID id;
+			BoxDrawable clothBox;
+		} cloth;
 
 		JPH::TempAllocatorImpl* temp_allocator = nullptr;
 		JPH::JobSystemThreadPool* job_system = nullptr;
@@ -401,10 +424,110 @@ static void draw_jolt_object(const Drawable& drawable) {
 			draw = sshape_element_range(&buf);
 			break;
 		}
+		case Drawable::CAPSULE: {
+			const CapsuleDrawable& capsule = static_cast<const CapsuleDrawable&>(drawable);
+			// capsule = 1 cylinder + 2 spheres
+			sshape_cylinder_t _sshape_cylinder_t{};
+			_sshape_cylinder_t.radius = capsule.radius;
+			_sshape_cylinder_t.height = capsule.height;
+			_sshape_cylinder_t.slices = 36;
+			_sshape_cylinder_t.stacks = 20;
+			_sshape_cylinder_t.color  = capsule.color;
+			_sshape_cylinder_t.merge  = false;
+			buf = sshape_build_cylinder(&buf, &_sshape_cylinder_t);
+			sshape_sphere_t _sshape_sphere_t{};
+			_sshape_sphere_t.radius = capsule.radius;
+			_sshape_sphere_t.slices = 36;
+			_sshape_sphere_t.stacks = 20;
+			_sshape_sphere_t.color  = capsule.color;
+			_sshape_sphere_t.merge  = true;
+			_sshape_sphere_t.transform = _sshape_mat4_identity();
+			_sshape_sphere_t.transform.m[3][1] = capsule.height * 0.5f;
+			buf = sshape_build_sphere(&buf, &_sshape_sphere_t);
+			_sshape_sphere_t.transform.m[3][1] = -capsule.height * 0.5f;
+			buf = sshape_build_sphere(&buf, &_sshape_sphere_t);
+			draw = sshape_element_range(&buf);
+			break;
+		}
 		default:
 			assert(false, "drawable.type invalid");
 			break;
 	}
+
+	const sg_buffer_desc vbuf_desc = sshape_vertex_buffer_desc(&buf);
+	const sg_buffer_desc ibuf_desc = sshape_index_buffer_desc(&buf);
+	state.graphics.vbuf = sg_make_buffer(&vbuf_desc);
+	state.graphics.ibuf = sg_make_buffer(&ibuf_desc);
+
+	sg_bindings _sg_bindings{};
+	_sg_bindings.vertex_buffers[0] = state.graphics.vbuf;
+	_sg_bindings.index_buffer = state.graphics.ibuf;
+	sg_apply_bindings(_sg_bindings);
+	state.graphics.vs_params.m = model;
+	state.graphics.vs_params.vp = view_proj;
+	sg_apply_uniforms(UB_shapes_vs_params, SG_RANGE(state.graphics.vs_params));
+	sg_draw(draw.base_element, draw.num_elements, 1);
+
+	sg_destroy_buffer(state.graphics.vbuf);
+	sg_destroy_buffer(state.graphics.ibuf);
+}
+
+static void draw_jolt_cloth(const JPH::BodyID& inId) {
+	if (inId.IsInvalid()) return;
+
+	JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
+
+	JPH::Mat44 world = body_interface.GetWorldTransform(inId);
+
+	JPH::BodyLockRead read_lock(state.physics.physics_system.GetBodyLockInterface(), inId);
+	if (!read_lock.Succeeded()) return;
+
+	const JPH::Body& body = read_lock.GetBody();
+
+	if (!body.IsSoftBody()) return;
+
+	const JPH::SoftBodyMotionProperties *soft_mp = static_cast<const JPH::SoftBodyMotionProperties *>(body.GetMotionProperties());
+	const JPH::SoftBodyShape *soft_shape = static_cast<const JPH::SoftBodyShape *>(body.GetShape());
+
+
+	HMM_Mat4 proj = state.graphics.camera.proj;
+	HMM_Mat4 view = state.graphics.camera.view;
+	HMM_Mat4 view_proj = HMM_MulM4(proj, view);
+
+	HMM_Mat4 model = jolt_mat4_to_hmm_mat4(world);
+
+	sshape_vertex_t vertices[6 * 1024];
+	uint16_t indices[16 * 1024];
+
+	sshape_buffer_t buf = {};
+	buf.vertices.buffer = SSHAPE_RANGE(vertices);
+	buf.indices.buffer  = SSHAPE_RANGE(indices);
+
+	sshape_element_range_t draw;
+
+	const auto& soft_vertices = soft_mp->GetVertices();
+	for (int i = 0; i < soft_mp->GetVertices().size(); i++) {
+		vertices[i].x = soft_vertices[i].mPosition.GetX();
+		vertices[i].y = soft_vertices[i].mPosition.GetY();
+		vertices[i].z = soft_vertices[i].mPosition.GetZ();
+		vertices[i].normal = _sshape_pack_f4_byte4n(0.0f, 1.0f, 0.0f, 0.0f);
+		vertices[i].color = _sshape_pack_f4_byte4n(0.1f, 0.6f, 0.3f, 1.0f);
+	}
+	buf.vertices.shape_offset = 0;
+	buf.vertices.data_size = sizeof(sshape_vertex_t) * soft_vertices.size();
+
+	const auto& soft_faces = soft_mp->GetFaces();
+	for (int i = 0; i < soft_faces.size(); i++) {
+		indices[i*3+0] = soft_faces[i].mVertex[0];
+		indices[i*3+1] = soft_faces[i].mVertex[1];
+		indices[i*3+2] = soft_faces[i].mVertex[2];
+	}
+	buf.indices.shape_offset = 0;
+	buf.indices.data_size = sizeof(uint16_t) * soft_faces.size() * 3;
+
+	buf.valid = true;
+
+	draw = sshape_element_range(&buf);
 
 	const sg_buffer_desc vbuf_desc = sshape_vertex_buffer_desc(&buf);
 	const sg_buffer_desc ibuf_desc = sshape_index_buffer_desc(&buf);
@@ -479,7 +602,7 @@ static void create_physics_scene() {
     		state.physics.boxes[i].extents = extents;
     		float posx = random_float();
     		float posy = random_float() - 12.0f;
-    		JPH::BodyCreationSettings box_settings(box_shape, JPH::RVec3(posx, (2.5 + 5.0*i), posy), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
+    		JPH::BodyCreationSettings box_settings(box_shape, JPH::RVec3(posx, (7.5 + 5.0*i), posy), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
     		state.physics.boxes[i].id = body_interface.CreateAndAddBody(box_settings, JPH::EActivation::Activate);
 
     		uint8_t random_r = static_cast<uint8_t>(random_float() * 255.0f);
@@ -490,10 +613,90 @@ static void create_physics_scene() {
     		state.physics.boxes[i].color = random_vertex_color;
     	}
 	}
+
+	// soft bofy (cloth)
+    {
+    	JPH::Ref<JPH::SoftBodySharedSettings> settings  = new JPH::SoftBodySharedSettings;
+
+    	const JPH::uint inGridSizeX = 30;
+    	const JPH::uint inGridSizeZ = 30;
+    	const float inGridSpacing = 0.75f;
+
+    	// auto inVertexGetInvMass = [](JPH::uint, JPH::uint) { return 1.0f; };
+		auto inVertexPerturbation = [](JPH::uint, JPH::uint) { return JPH::Vec3::sZero(); };
+
+    	auto inVertexGetInvMass = [inGridSizeX, inGridSizeZ](JPH::uint inX, JPH::uint inZ) {
+    		return (inX == 0 && inZ == 0)
+				|| (inX == inGridSizeX - 1 && inZ == 0)
+				|| (inX == 0 && inZ == inGridSizeZ - 1)
+				|| (inX == inGridSizeX - 1 && inZ == inGridSizeZ - 1)? 0.0f : 1.0f;
+    	};
+
+    	const float cOffsetX = -0.5f * inGridSpacing * (inGridSizeX - 1);
+    	const float cOffsetZ = -0.5f * inGridSpacing * (inGridSizeZ - 1);
+
+    	// Create settings
+    	for (JPH::uint z = 0; z < inGridSizeZ; ++z)
+    		for (JPH::uint x = 0; x < inGridSizeX; ++x)
+    		{
+    			JPH::SoftBodySharedSettings::Vertex v;
+    			JPH::Vec3 position = inVertexPerturbation(x, z) + JPH::Vec3(cOffsetX + x * inGridSpacing, 0.0f, cOffsetZ + z * inGridSpacing);
+    			position.StoreFloat3(&v.mPosition);
+    			v.mInvMass = inVertexGetInvMass(x, z);
+    			settings->mVertices.push_back(v);
+    		}
+
+    	// Function to get the vertex index of a point on the cloth
+    	auto vertex_index = [inGridSizeX](JPH::uint inX, JPH::uint inY) -> JPH::uint
+    	{
+    		return inX + inY * inGridSizeX;
+    	};
+
+    	// Create faces
+    	for (JPH::uint z = 0; z < inGridSizeZ - 1; ++z)
+    		for (JPH::uint x = 0; x < inGridSizeX - 1; ++x)
+    		{
+    			JPH::SoftBodySharedSettings::Face f;
+    			f.mVertex[0] = vertex_index(x, z);
+    			f.mVertex[1] = vertex_index(x, z + 1);
+    			f.mVertex[2] = vertex_index(x + 1, z + 1);
+    			settings->AddFace(f);
+
+    			f.mVertex[1] = vertex_index(x + 1, z + 1);
+    			f.mVertex[2] = vertex_index(x + 1, z);
+    			settings->AddFace(f);
+    		}
+
+    	// Create constraints
+    	const JPH::SoftBodySharedSettings::VertexAttributes &inVertexAttributes = { 1.0e-5f, 1.0e-5f, 1.0e-5f };
+    	settings->CreateConstraints(&inVertexAttributes, 1, JPH::SoftBodySharedSettings::EBendType::None);
+
+    	// Optimize the settings
+    	settings->Optimize();
+
+    	// Create Cloth
+    	JPH::SoftBodyCreationSettings cloth(settings, JPH::RVec3(0, 5.0f, -12.0f), JPH::Quat::sRotation(JPH::Vec3::sAxisY(), 0.25f * JPH::JPH_PI), Layers::MOVING);
+    	cloth.mUpdatePosition = false; // Don't update the position of the cloth as it is fixed to the world
+    	cloth.mMakeRotationIdentity = false; // Test explicitly checks if soft bodies with a rotation collide with shapes properly
+    	state.physics.cloth.id = body_interface.CreateAndAddSoftBody(cloth, JPH::EActivation::Activate);
+
+    	state.physics.cloth.clothBox.id = state.physics.cloth.id;
+    	state.physics.cloth.clothBox.extents = JPH::RVec3(30, 0.5, 30);
+
+    	uint8_t random_r = static_cast<uint8_t>(random_float() * 255.0f);
+    	uint8_t random_g = static_cast<uint8_t>(random_float() * 255.0f);
+    	uint8_t random_b = static_cast<uint8_t>(random_float() * 255.0f);
+    	uint32_t random_vertex_color = random_r | random_g << 8 | random_b << 16;
+
+    	state.physics.cloth.clothBox.color = random_vertex_color;
+    }
 }
 
 static void clear_physics_scene() {
     JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
+
+	body_interface.RemoveBody(state.physics.cloth.id);
+	body_interface.DestroyBody(state.physics.cloth.id);
 
 	for (int i = 0; i < 100; i++) {
 		if (state.physics.boxes[i].id.IsInvalid()) continue;
@@ -531,9 +734,9 @@ static void init(void) {
 	    camera2_desc_t camdesc = {0};
 	    camdesc.nearz = 0.1f;
 	    camdesc.farz = 1000.0f;
-	    camdesc.pos = HMM_V3(0.0f, 1.5f, -6.0f);
+	    camdesc.pos = HMM_V3(0.0f, 5.5f, 6.0f);
 	    camdesc.up = HMM_V3(0.0f, 1.0f, 0.0f);
-	    camdesc.yaw = 90.0f;
+	    camdesc.yaw = -90.0f;
 	    camdesc.pitch = 0.0f;
 	    cam_init(&state.graphics.camera, &camdesc);
 
@@ -591,7 +794,10 @@ static void init(void) {
         state.physics.object_vs_broadphase_layer_filter = new ObjectVsBroadPhaseLayerFilterImpl();
         state.physics.object_vs_object_layer_filter = new ObjectLayerPairFilterImpl();
 
+		JPH::PhysicsSettings physicsSettings;
+		physicsSettings.mUseLargeIslandSplitter = true;
 		state.physics.physics_system.Init(cMaxBodies, cNumBodyMutexes, cMaxBodyPairs, cMaxContactConstraints, *state.physics.broad_phase_layer_interface, *state.physics.object_vs_broadphase_layer_filter, *state.physics.object_vs_object_layer_filter);
+		state.physics.physics_system.SetPhysicsSettings(physicsSettings);
 
         state.physics.body_activation_listener = new MyBodyActivationListener();
 		state.physics.physics_system.SetBodyActivationListener(state.physics.body_activation_listener);
@@ -634,7 +840,7 @@ static void cleanup(void) {
 
 static void frame(void) {
 	// physics update
-    const int cCollisionSteps = 2;
+    const int cCollisionSteps = 1;
     state.physics.physics_system.Update((float)sapp_frame_duration(), cCollisionSteps, state.physics.temp_allocator, state.physics.job_system);
 
 	JPH::BodyInterface& body_interface = state.physics.physics_system.GetBodyInterface();
@@ -656,6 +862,7 @@ static void frame(void) {
 			state.physics.boxes[i].id = JPH::BodyID();
 		}
 	}
+
 
 	// graphics update
     const int fb_width = sapp_width();
@@ -686,6 +893,12 @@ static void frame(void) {
 		draw_jolt_object(state.physics.spheres[i]);
 		draw_jolt_object(state.physics.boxes[i]);
 	}
+
+	// draw cloth
+    {
+    	// draw_jolt_object(state.physics.cloth.clothBox);
+    	draw_jolt_cloth(state.physics.cloth.id);
+    }
 
     sdtx_draw();
     sg_end_pass();
